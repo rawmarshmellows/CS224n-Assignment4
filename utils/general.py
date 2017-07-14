@@ -16,18 +16,20 @@ def save_graphs(data, path):
     losses = data["losses"]
     fig = plt.figure()
     plt.plot([i for i in range(len(losses))], losses)
+    plt.title("Batch sized used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
     plt.ylabel('average loss', fontsize=16)
     fig.savefig(pjoin(path, 'loss.png'))
     plt.close(fig)
 
-    batch_indicies = data["batch_indicies"]
+    batch_indices = data["batch_indices"]
 
     # Now plot the f1, EM for the training and validation sets
     f1_train, f1_val = data["f1_train"], data["f1_val"]
 
     fig = plt.figure()
-    plt.plot(batch_indicies, f1_train, 'b', batch_indicies, f1_val, 'r')
+    plt.plot(batch_indices, f1_train, 'b', batch_indices, f1_val, 'r')
+    plt.title("Batch sized used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
     plt.ylabel('F1 Score', fontsize = 16)
     fig.savefig(pjoin(path, "f1_scores.png"))
@@ -36,7 +38,8 @@ def save_graphs(data, path):
     EM_train, EM_val = data["EM_train"], data["EM_val"]
 
     fig = plt.figure()
-    plt.plot(batch_indicies, EM_train, 'b', batch_indicies, EM_val, 'r')
+    plt.plot(batch_indices, EM_train, 'b', batch_indices, EM_val, 'r')
+    plt.title("Batch sized used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
     plt.ylabel('EM Score', fontsize = 16)
     fig.savefig(pjoin(path, "EM_scores.png"))
@@ -120,43 +123,43 @@ def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = T
     # Since the dataset is already sorted WRT context length, this will make the training a lot faster
 
     if is_train:
-        batch_indicies = np.arange(n_buckets)
+        batch_indices = np.arange(n_buckets)
 
         # Create batches that are of the same length
         if shuffle:
-            np.random.shuffle(batch_indicies)
+            np.random.shuffle(batch_indices)
 
 
-        for i in batch_indicies:
+        for i in batch_indices:
 
             start = i * batch_size
             end = min(start + batch_size * window_size, n_samples)
             window = [i for i in range(start, end)]
-            indicies = np.random.choice(window, batch_size, replace = False)
+            indices = np.random.choice(window, batch_size, replace=False)
             ret = {}
             for k, v in data.items():
-                ret[k] = v[indicies]
+                ret[k] = v[indices]
             yield ret
     else:
-        indicies = np.arange(n_samples)
+        indices = np.arange(n_samples)
         if shuffle:
-            np.random.shuffle(indicies)
+            np.random.shuffle(indices)
 
         for i in range(0, n_buckets * batch_size, batch_size):
             ret = {}
             start = i
             end = i + batch_size
             for k, v in data.items():
-                ret[k] = v[indicies[start:end]]
+                ret[k] = v[indices[start:end]]
             yield ret
 
 def get_random_samples(data, num_samples):  
     total_sample_num = len(data["context"])
-    indicies = np.random.choice(np.arange(total_sample_num), num_samples, replace = False)
-    # logging.debug("Number of indicies selected: {}".format(len(indicies)))
+    indices = np.random.choice(np.arange(total_sample_num), num_samples, replace = False)
+    # logging.debug("Number of indices selected: {}".format(len(indices)))
     ret = {}
     for k, v in data.items():
-        ret[k] = v[indicies]
+        ret[k] = v[indices]
     return(ret)
 
 

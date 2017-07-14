@@ -41,19 +41,22 @@ def f1_score(prediction, ground_truth):
 
 def exact_match_score(prediction, ground_truth):
     if normalize_answer(prediction) == normalize_answer(ground_truth):
-#         print(normalize_answer(prediction))
-#         print(normalize_answer(ground_truth))
         return(True)
     else:
         return(False)
 
 def evaluate(predictions, ground_truths):     
     f1 = exact_match = total = no_answer = 0
+    # print("predictions:")
+    # print(len(predictions))
+    # print(predictions)
+    # print("ground_truths:")
+    # print(len(ground_truths))
+    # print(ground_truths)
+
     for prediction, ground_truth in zip(predictions, ground_truths):
-#         dprint("prediction is: {}".format(prediction), debug = True)
-#         dprint("ground_truth is: {}".format(ground_truth), debug = True)
         total += 1
-        
+        # print(total)
         # sometimes we might not predict the answer so in this case we just skip the loop iteration
         if prediction == "": 
             no_answer += 1
@@ -62,7 +65,8 @@ def evaluate(predictions, ground_truths):
         # now we need to turn the lists into strings
         exact_match += exact_match_score(prediction, ground_truth)
         f1 += f1_score(prediction, ground_truth)
-        
+
+    print("total number of samples is: {}".format(total))
     exact_match = 100.0 * exact_match / total
     f1 = 100.0 * f1 / total
     return {"f1" : f1,

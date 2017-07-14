@@ -44,6 +44,8 @@ class Model(metaclass=ABCMeta):
         self.loss = self.add_loss_op(self.preds)
         self.train_op = self.add_training_op(self.loss)
 
+
+
     def train(self, session, train, val):
         variables = tf.trainable_variables()
         num_vars = np.sum([np.prod(v.get_shape().as_list()) for v in variables])
@@ -68,14 +70,10 @@ class Model(metaclass=ABCMeta):
                 val_samples = get_random_samples(val, self.config.samples_used_for_evaluation)
 
                 # First evaluate on the training set for not using best span
-                f1_train, EM_train = self.evaluate_answer(session, train_samples,
-                                                          num_samples=self.config.samples_used_for_evaluation,
-                                                          use_best_span=False)
+                f1_train, EM_train = self.evaluate_answer(session, train_samples, use_best_span=False)
 
                 # Then evaluate on the val set
-                f1_val, EM_val = self.evaluate_answer(session, val_samples,
-                                                      num_samples=self.config.samples_used_for_evaluation,
-                                                      use_best_span=False)
+                f1_val, EM_val = self.evaluate_answer(session, val_samples, use_best_span=False)
 
                 if log:
                     print()
@@ -86,14 +84,10 @@ class Model(metaclass=ABCMeta):
                                                                                     self.config.samples_used_for_evaluation))
 
                 # First evaluate on the training set
-                f1_train, EM_train = self.evaluate_answer(session, train_samples,
-                                                          num_samples=self.config.samples_used_for_evaluation,
-                                                          use_best_span=True)
+                f1_train, EM_train = self.evaluate_answer(session, train_samples,use_best_span=True)
 
                 # Then evaluate on the val set
-                f1_val, EM_val = self.evaluate_answer(session, val_samples,
-                                                      num_samples=self.config.samples_used_for_evaluation,
-                                                      use_best_span=True)
+                f1_val, EM_val = self.evaluate_answer(session, val_samples, use_best_span=True)
 
                 if log:
                     print()
@@ -107,9 +101,10 @@ class Model(metaclass=ABCMeta):
                 self.result_saver.save("EM_train", EM_train)
                 self.result_saver.save("f1_val", f1_val)
                 self.result_saver.save("EM_val", EM_val)
-                batches_trained = i if self.result_saver.is_empty("batch_indicies") \
-                    else self.result_saver.get("batch_indicies")[-1] + (i + 1)
-                self.result_saver.save("batch_indicies", batches_trained)
+                batches_trained = i if self.result_saver.is_empty("batch_indices") \
+                    else self.result_saver.get("batch_indices")[-1] + (self.config.eval_num  + 1)
+                self.result_saver.save("batch_indices", batches_trained)
+                self.result_saver.save("batch_size", self.config.batch_size)
 
                 save_graphs(self.result_saver.data, path=self.config.train_dir)
                 saver = tf.train.Saver()
@@ -128,11 +123,11 @@ class Model(metaclass=ABCMeta):
 
         return outputs
 
-    def evaluate_answer(self, session, data, num_samples, use_best_span):
+    def evaluate_answer(self, session, data, use_best_span):
 
         # Now we whether finding the best span improves the score
         start_indicies, end_indicies = self.predict_for_batch(session, data, use_best_span)
-        pred_answer, truth_answer = self._get_sentences_from_indicies(data, start_indicies, end_indicies)
+        pred_answer, truth_answer = self._get_sentences_from_indices(data, start_indicies, end_indicies)
         result = evaluate(pred_answer, truth_answer)
 
         f1 = result["f1"]
@@ -141,19 +136,18 @@ class Model(metaclass=ABCMeta):
         return f1, EM
 
     def predict_for_batch(self, session, data, use_best_span):
-        batch_num = int(np.ceil(len(data) * 1.0 / self.config.batch_size))
-        start_indicies = []
-        end_indicies = []
+        start_indices = []
+        end_indices = []
         for batch in batches(data, is_train=False, batch_size=self.config.batch_size, shuffle=False):
             # logging.debug("batch is: {}".format(batch))
             start_index, end_index = self.answer(session, batch, use_best_span)
-            start_indicies.extend(start_index)
-            end_indicies.extend(end_index)
-        # logging.debug("start_indicies: {}".format(start_indicies))
-        # logging.debug("end_indicies: {}".format(end_indicies))
-        return start_indicies, end_indicies
+            start_indices.extend(start_index)
+            end_indices.extend(end_index)
+        # logging.debug("start_indices: {}".format(start_indices))
+        # logging.debug("end_indices: {}".format(end_indices))
+        return start_indices, end_indices
 
-    def _get_sentences_from_indicies(self, data, start_index, end_index):
+    def _get_sentences_from_indices(self, data, start_index, end_index):
         answer_word_pred = []
         answer_word_truth = []
         word_context = data["word_context"]
