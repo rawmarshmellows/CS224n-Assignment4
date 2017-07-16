@@ -56,15 +56,20 @@ class Model(metaclass=ABCMeta):
     def run_epoch(self, session, train, val, log):
         num_samples = len(train["context"])
         num_batches = int(np.ceil(num_samples) * 1.0 / self.config.batch_size)
+        batches_trained = 0 if self.result_saver.is_empty("batch_indices") \
+            else self.result_saver.get("batch_indices")[-1]
+        self.result_saver.save("batch_size", self.config.batch_size)
+
         progress = Progbar(target=num_batches)
         best_f1 = 0
         for i, train_batch in enumerate(
                 batches(train, is_train=True, batch_size=self.config.batch_size, window_size=self.config.window_size)):
             _, loss = self.optimize(session, train_batch)
             progress.update(i + 1, [("training loss", loss)])
+            batches_trained += 1
             self.result_saver.save("losses", loss)
 
-            if i % self.config.eval_num == 0:
+            if batches_trained % self.config.eval_num == 0:
 
                 # Randomly get some samples from the dataset
                 train_samples = get_random_samples(train, self.config.samples_used_for_evaluation)
@@ -102,10 +107,7 @@ class Model(metaclass=ABCMeta):
                 self.result_saver.save("EM_train", EM_train)
                 self.result_saver.save("f1_val", f1_val)
                 self.result_saver.save("EM_val", EM_val)
-                batches_trained = i if self.result_saver.is_empty("batch_indices") \
-                    else self.result_saver.get("batch_indices")[-1] + (self.config.eval_num  + 1)
                 self.result_saver.save("batch_indices", batches_trained)
-                self.result_saver.save("batch_size", self.config.batch_size)
 
                 save_graphs(self.result_saver.data, path=self.config.train_dir)
                 if f1_val > best_f1:

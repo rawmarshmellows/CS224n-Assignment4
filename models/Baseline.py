@@ -1,11 +1,9 @@
 import logging
-from utils.general import batches, Progbar, pad_sequences, get_random_samples, find_best_span, save_graphs
-from utils.eval import evaluate
-import numpy as np
+from utils.general import pad_sequences
+from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM
+from models.model import Model
 import tensorflow as tf
-from os.path import join as pjoin
-from functools import reduce
-from operator import mul
+
 
 
 logging.basicConfig(level=logging.INFO)
@@ -117,17 +115,9 @@ class Baseline(Model):
                                                                                    initial_state_bw=q_final_state_bw,
                                                                                    dropout=self.dropout_placeholder)
 
-        # Now setup the attention module
-        with tf.variable_scope("attention"):
-            attention = self.attention.calculate(Hq, Hc, self.max_question_length_placeholder,
-                                                 self.max_context_length_placeholder,
-                                                 self.question_mask_placeholder, self.context_mask_placeholder,
-                                                 is_train=(self.dropout_placeholder < 1.0),
-                                                 dropout=self.dropout_placeholder)
-
         logging.info(("-" * 10, " DECODING ", "-" * 10))
         with tf.variable_scope("decoding"):
-            start, end = self.decoder.decode(attention, self.context_mask_placeholder,
+            start, end = self.decoder.decode(Hc, self.context_mask_placeholder,
                                              self.max_context_length_placeholder, self.dropout_placeholder)
         return start, end
 
