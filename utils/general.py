@@ -7,7 +7,7 @@ import matplotlib
 from os.path import join as pjoin
 matplotlib.style.use('ggplot')
 
-logging.basicConfig(level = logging.DEBUG)
+logging.basicConfig(level = logging.INFO)
 PAD_ID = 0
 
 def save_graphs(data, path):
@@ -117,8 +117,9 @@ def pad_sequences(sequences, max_sequence_length):
 def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = True):
     
     n_samples = len(data["context"])
-    n_buckets = n_samples//batch_size
-
+    n_buckets = n_samples//batch_size + 1
+    logging.debug("Number of samples: {}".format(n_samples))
+    logging.debug("Number of buckets: {}".format(n_buckets))
     # If it is training then we simply get a window of batch_size * 3 and randomly sample 
     # Since the dataset is already sorted WRT context length, this will make the training a lot faster
 
@@ -130,12 +131,18 @@ def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = T
             np.random.shuffle(batch_indices)
 
 
-        for i in batch_indices:
+        for i in batch_indices[::-1]:
 
             start = i * batch_size
             end = min(start + batch_size * window_size, n_samples)
+            # logging.debug("start: {}".format(start))
+            # logging.debug("end: {}".format(end))
             window = [i for i in range(start, end)]
-            indices = np.random.choice(window, batch_size, replace=False)
+            # logging.debug("window size: {}".format(len(window)))
+            # logging.debug("batch_size: {}".format(batch_size))
+            indices = np.random.choice(window, min(len(window), batch_size), replace=False)
+            # logging.debug("selected indices size: {}".format(len(indices)))
+            # logging.debug(indices)
             ret = {}
             for k, v in data.items():
                 ret[k] = v[indices]

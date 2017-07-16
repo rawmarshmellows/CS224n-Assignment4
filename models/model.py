@@ -57,6 +57,7 @@ class Model(metaclass=ABCMeta):
         num_samples = len(train["context"])
         num_batches = int(np.ceil(num_samples) * 1.0 / self.config.batch_size)
         progress = Progbar(target=num_batches)
+        best_f1 = 0
         for i, train_batch in enumerate(
                 batches(train, is_train=True, batch_size=self.config.batch_size, window_size=self.config.window_size)):
             _, loss = self.optimize(session, train_batch)
@@ -107,8 +108,10 @@ class Model(metaclass=ABCMeta):
                 self.result_saver.save("batch_size", self.config.batch_size)
 
                 save_graphs(self.result_saver.data, path=self.config.train_dir)
-                saver = tf.train.Saver()
-                saver.save(session, pjoin(self.config.train_dir, "BATCH-{}".format(batches_trained)))
+                if f1_val > best_f1:
+                    saver = tf.train.Saver()
+                    saver.save(session, pjoin(self.config.train_dir, "BATCH-{}".format(batches_trained)))
+                    best_f1 = f1_val
 
     def optimize(self, session, batch):
         context = batch["context"]
@@ -127,7 +130,7 @@ class Model(metaclass=ABCMeta):
 
         # Now we whether finding the best span improves the score
         start_indicies, end_indicies = self.predict_for_batch(session, data, use_best_span)
-        pred_answer, truth_answer = self._get_sentences_from_indices(data, start_indicies, end_indicies)
+        pred_answer, truth_answer = self.get_sentences_from_indices(data, start_indicies, end_indicies)
         result = evaluate(pred_answer, truth_answer)
 
         f1 = result["f1"]
@@ -138,7 +141,7 @@ class Model(metaclass=ABCMeta):
     def predict_for_batch(self, session, data, use_best_span):
         start_indices = []
         end_indices = []
-        for batch in batches(data, is_train=False, batch_size=self.config.batch_size, shuffle=False):
+        for batch in batches(data, is_train=False, shuffle=False):
             # logging.debug("batch is: {}".format(batch))
             start_index, end_index = self.answer(session, batch, use_best_span)
             start_indices.extend(start_index)
@@ -147,7 +150,7 @@ class Model(metaclass=ABCMeta):
         # logging.debug("end_indices: {}".format(end_indices))
         return start_indices, end_indices
 
-    def _get_sentences_from_indices(self, data, start_index, end_index):
+    def get_sentences_from_indices(self, data, start_index, end_index):
         answer_word_pred = []
         answer_word_truth = []
         word_context = data["word_context"]
@@ -156,12 +159,10 @@ class Model(metaclass=ABCMeta):
 
         for span, context in zip(zip(start_index, end_index), word_context):
             prediction = " ".join(context.split()[span[0]:span[1] + 1])
-            #         print(prediction)
             answer_word_pred.append(prediction)
 
         for span, context in zip(zip(answer_span_start, answer_span_end), word_context):
             truth = " ".join(context.split()[span[0]:span[1] + 1])
-            #         print(truth)
             answer_word_truth.append(truth)
 
         return answer_word_pred, answer_word_truth

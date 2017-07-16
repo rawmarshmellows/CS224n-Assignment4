@@ -157,7 +157,7 @@ class Decoder(object):
             m2, _ = BiLSTM(m1, mask, self.output_size, dropout=dropout)
 
         with tf.variable_scope("start"):
-            start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+            start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
             start = prepro_for_softmax(start, mask)
 
         with tf.variable_scope("end"):

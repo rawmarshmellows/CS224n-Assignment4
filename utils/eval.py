@@ -47,12 +47,6 @@ def exact_match_score(prediction, ground_truth):
 
 def evaluate(predictions, ground_truths):     
     f1 = exact_match = total = no_answer = 0
-    # print("predictions:")
-    # print(len(predictions))
-    # print(predictions)
-    # print("ground_truths:")
-    # print(len(ground_truths))
-    # print(ground_truths)
 
     for prediction, ground_truth in zip(predictions, ground_truths):
         total += 1
@@ -61,7 +55,9 @@ def evaluate(predictions, ground_truths):
         if prediction == "": 
             no_answer += 1
             continue
-        
+    
+#        print("Prediction is: {}".format(prediction))
+#        print("Ground truth is: {}".format(ground_truth))
         # now we need to turn the lists into strings
         exact_match += exact_match_score(prediction, ground_truth)
         f1 += f1_score(prediction, ground_truth)

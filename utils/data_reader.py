@@ -12,9 +12,9 @@ def get_indicies_sorted_by_context_length(data):
     return np.argsort(context_lengths)
 
 
-def reindex_dictionary(data, indicies):
+def reindex_dictionary(data, indices):
     for k, v in data.items():
-        data[k] = v[indicies]
+        data[k] = v[indices]
     return data
 
 

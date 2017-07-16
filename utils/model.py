@@ -1,8 +1,5 @@
 import tensorflow as tf
 
-
-
-
 def length(mask):
     mask = tf.cast(mask, tf.int32)
     length = tf.reduce_sum(mask, axis=1)
