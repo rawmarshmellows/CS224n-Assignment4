@@ -26,13 +26,15 @@ I have currently implemented 3 models:
 ## Installation
 1. Create and setup conda environment
 > source create -n squad python=3
+2. Activate the created environment
 > source activate squad
-2. Install Tensorflow
+3. Install Tensorflow
 > pip install 'tensorflow-gpu==1.1.0'
-3. Install Matplotlib
+4. Install Matplotlib
 > conda install matplotlib
-4. Install Jupyter notebook (if you want to run the Notebook to see a demo of the trained neural network)
+5. Install Jupyter notebook (if you want to run the Notebook to see a demo of the trained neural network)
 > conda install notebook ipykernel
+6. Create the kernel to be used by the notebook
 > ipython kernel install --user --display-name squad --name squad
 
 ## Getting started (for training)
