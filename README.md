@@ -20,7 +20,7 @@ I have currently implemented 3 models:
 
 ## Prerequisites 
 * [Anaconda](https://anaconda.org/) to install the packages
-* Tensorflow v1.1 (preferably with GPU if you want to do your own training) I had to work with Tensorflow v1.1 as in v1.2 support for GPUs were disabled for Macs. s=
+* Tensorflow v1.1 (preferably with GPU if you want to do your own training) I had to work with Tensorflow v1.1 as in v1.2 support for GPUs were disabled for Macs.
 > pip install 'tensorflow-gpu==1.1.0'
 
 ## Installation
@@ -44,7 +44,11 @@ I have currently implemented 3 models:
 
 Note here that the only two required flags are the `--model` flag and the `--train_dir` flag, the other flags have default values and can be found in the `train.py` file.
 
+Another important flag is the `--eval_num` flag which specifies how often
+
 ## Getting started (for notebook)
+1. Go to the root folder and type
+
 > jupyter notebook
 
 Then click on `LuongAttention.ipynb` and run through the notebook. It will load up the model, choose a validation sample from the dataset and predict on it which will then be compared to the correct answer.
