@@ -46,6 +46,7 @@ Note here that the only two required flags are the `--model` flag and the `--tra
 
 ## Getting started (for notebook)
 > jupyter notebook
+
 Then click on `LuongAttention.ipynb` and run through the notebook. It will load up the model, choose a validation sample from the dataset and predict on it which will then be compared to the correct answer.
 
 
