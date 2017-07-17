@@ -156,13 +156,33 @@ class Decoder(object):
         with tf.variable_scope("m2"):
             m2, _ = BiLSTM(m1, mask, self.output_size, dropout=dropout)
 
+        # Original BiDAF implementation
+        # with tf.variable_scope("start"):
+        #     start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
+        #     start = prepro_for_softmax(start, mask)
+
+        # with tf.variable_scope("end"):
+        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+        #     end = prepro_for_softmax(end, mask)
+
+        # My implementation 1
         with tf.variable_scope("start"):
-            start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
+            start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
             start = prepro_for_softmax(start, mask)
 
         with tf.variable_scope("end"):
             end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
             end = prepro_for_softmax(end, mask)
+
+        # My implementation 2
+        # with tf.variable_scope("start"):
+        #     start = logits_helper(m2, max_input_length)
+        #     start = prepro_for_softmax(start, mask)
+
+        # with tf.variable_scope("end"):
+        #     end = logits_helper(m2, max_input_length)
+        #     end = prepro_for_softmax(end, mask)
+
 
         return (start, end)
 
