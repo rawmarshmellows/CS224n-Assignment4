@@ -213,10 +213,10 @@ class LuongAttention(Model):
 
         if self.config.ema_for_weights:
             ema = tf.train.ExponentialMovingAverage(0.999)
-            ema_op = ema.apply(variables)
+            maintain_averages_op = ema.apply(variables)
 
             with tf.control_dependencies([train_op]):
-                train_op = tf.group(ema_op)
+                train_op = tf.group(maintain_averages_op)
 
         return train_op
 

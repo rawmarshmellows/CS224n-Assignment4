@@ -1,0 +1,2 @@
+model_checkpoint_path: "LuongAttention-320"
+all_model_checkpoint_paths: "LuongAttention-320"

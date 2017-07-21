@@ -112,7 +112,7 @@ class Model(metaclass=ABCMeta):
                 save_graphs(self.result_saver.data, path=self.config.train_dir)
                 if f1_val > best_f1:
                     saver = tf.train.Saver()
-                    saver.save(session, pjoin(self.config.train_dir, "BATCH-{}".format(batches_trained)))
+                    saver.save(session, pjoin(self.config.train_dir, self.config.model), global_step=batches_trained)
                     best_f1 = f1_val
 
     def optimize(self, session, batch):

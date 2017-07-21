@@ -67,4 +67,4 @@ def evaluate(predictions, ground_truths):
     f1 = 100.0 * f1 / total
     return {"f1" : f1,
             "EM" : exact_match,
-            "no_answer" : no_answer}
+        "no_answer" : no_answer}

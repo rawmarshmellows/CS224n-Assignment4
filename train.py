@@ -35,6 +35,8 @@ tf.app.flags.DEFINE_string("log", True, "Whether or not to log the metrics durin
 tf.app.flags.DEFINE_string("optimizer", "adam", "The optimizer to be used ")
 tf.app.flags.DEFINE_string("model", "BiDAF", "Model type")
 tf.app.flags.DEFINE_string("find_best_span", True, "Whether find the span with the highest probability")
+tf.app.flags.DEFINE_string("filter_heights", "5", "The number of characters to include per filter")
+tf.app.flags.DEFINE_string("use_character_embeddings", True, "Whether or not to use the character embeddings")
 
 FLAGS = tf.app.flags.FLAGS
 

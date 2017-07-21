@@ -157,22 +157,22 @@ class Decoder(object):
             m2, _ = BiLSTM(m1, mask, self.output_size, dropout=dropout)
 
         # Original BiDAF implementation
-        # with tf.variable_scope("start"):
-        #     start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
-        #     start = prepro_for_softmax(start, mask)
-
-        # with tf.variable_scope("end"):
-        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
-        #     end = prepro_for_softmax(end, mask)
-
-        # My implementation 1
         with tf.variable_scope("start"):
-            start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+            start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
             start = prepro_for_softmax(start, mask)
 
         with tf.variable_scope("end"):
             end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
             end = prepro_for_softmax(end, mask)
+
+        # My implementation 1
+        # with tf.variable_scope("start"):
+        #     start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+        #     start = prepro_for_softmax(start, mask)
+        #
+        # with tf.variable_scope("end"):
+        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+        #     end = prepro_for_softmax(end, mask)
 
         # My implementation 2
         # with tf.variable_scope("start"):
@@ -188,6 +188,12 @@ class Decoder(object):
 
 
 class BiDAF(Model):
+    """
+    BS : Batch size
+    MWL : Max word length
+    CES
+
+    """
     def __init__(self, result_saver, embeddings, config):
         self.embeddings = embeddings
         self.config = config
@@ -207,6 +213,9 @@ class BiDAF(Model):
         self.context_mask_placeholder = tf.placeholder(tf.bool, shape=(None, None))
         self.question_placeholder = tf.placeholder(tf.int32, shape=(None, None))
         self.question_mask_placeholder = tf.placeholder(tf.bool, shape=(None, None))
+
+        self.context_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) # (BS, MWL, CES)
+        self.context_char_mask_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) #
 
         self.answer_span_start_placeholder = tf.placeholder(tf.int32)
         self.answer_span_end_placeholder = tf.placeholder(tf.int32)
@@ -305,10 +314,10 @@ class BiDAF(Model):
 
         if self.config.ema_for_weights:
             ema = tf.train.ExponentialMovingAverage(0.999)
-            ema_op = ema.apply(variables)
+            maintain_averages_op = ema.apply(variables)
 
             with tf.control_dependencies([train_op]):
-                train_op = tf.group(ema_op)
+                train_op = tf.group(maintain_averages_op)
 
         return train_op
 
