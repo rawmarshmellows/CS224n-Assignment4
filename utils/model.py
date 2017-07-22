@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+
 def length(mask):
     mask = tf.cast(mask, tf.int32)
     length = tf.reduce_sum(mask, axis=1)
@@ -50,3 +51,39 @@ def BiLSTM(inputs, masks, size, initial_state_fw=None, initial_state_bw=None, dr
                                                                                                sequence_length=sequence_length)
     output_concat = tf.concat([output_fw, output_bw], 2)
     return (output_concat, (final_state_fw, final_state_bw))
+
+
+def word_embedding_lookup(lookup_indices, max_length, lookup_embeddings_matrix, embedding_size):
+    embeddings = tf.nn.embedding_lookup(lookup_embeddings_matrix, lookup_indices)
+    embeddings = tf.reshape(embeddings, shape=[-1, max_length, embedding_size])
+    return embeddings
+
+
+def character_embedding_lookup(lookup_indices, lookup_embeddings_matrix):
+    embeddings = tf.nn.embedding_lookup(lookup_embeddings_matrix, lookup_indices)
+    return embeddings
+
+
+def mask_for_character_embeddings(character_embeddings, mask):
+    mask_value = tf.cast(tf.zeros_like(mask), tf.float32)
+    masked_chars = tf.where(mask, character_embeddings, mask_value)
+    return (masked_chars)
+
+
+def conv1d(char_embeddings, filter_widths, num_filters, scope = None):
+    outs = []
+    d = char_embeddings.get_shape().as_list()[-1]
+    with tf.variable_scope(scope or "conv1d"):
+
+        for filter_width, num_filter in zip(filter_widths, num_filters):
+            with tf.variable_scope("conv_{}".format(filter_width)):
+                W = tf.get_variable("W", shape = [1, filter_width, d, num_filter])
+                b = tf.get_variable("b", shape = [num_filter])
+
+                out = tf.nn.conv2d(char_embeddings, W, strides=[1, 1, 1, 1], padding="VALID")
+                out = tf.nn.relu(out + b)
+
+                out = tf.reduce_max(out, 2)
+                outs.append(out)
+
+    return (tf.concat(outs, 2))

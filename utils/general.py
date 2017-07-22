@@ -1,17 +1,19 @@
 import time
 import sys
-import numpy as np 
+import numpy as np
 import logging
 import matplotlib.pyplot as plt
 import matplotlib
 from os.path import join as pjoin
+
 matplotlib.style.use('ggplot')
 
-logging.basicConfig(level = logging.INFO)
+logging.basicConfig(level=logging.INFO)
 PAD_ID = 0
 
-def save_graphs(data, path):
 
+# TODO: maybe put this into the ResultSaver class?
+def save_graphs(data, path):
     # First plot the losses
     losses = data["losses"]
     fig = plt.figure()
@@ -31,7 +33,7 @@ def save_graphs(data, path):
     plt.plot(batch_indices, f1_train, 'b', batch_indices, f1_val, 'r')
     plt.title("Batch sized used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
-    plt.ylabel('F1 Score', fontsize = 16)
+    plt.ylabel('F1 Score', fontsize=16)
     fig.savefig(pjoin(path, "f1_scores.png"))
     plt.close(fig)
 
@@ -41,15 +43,17 @@ def save_graphs(data, path):
     plt.plot(batch_indices, EM_train, 'b', batch_indices, EM_val, 'r')
     plt.title("Batch sized used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
-    plt.ylabel('EM Score', fontsize = 16)
+    plt.ylabel('EM Score', fontsize=16)
     fig.savefig(pjoin(path, "EM_scores.png"))
     plt.close(fig)
+
 
 def find_best_span(start, end):
     """
     start: (BS, MCL) tensor
     end: (BS, MCL) tensor
     """
+    # TODO: use dynamic programming to make run time O(n) right now it is O(n^2/2)
     batch_size = start.shape[0]
     start_index = []
     end_index = []
@@ -71,31 +75,29 @@ def find_best_span(start, end):
         start_index.append(best_span[0])
         end_index.append(best_span[1])
 
-    return(start_index, end_index)
-                
+    return (start_index, end_index)
 
 
 def softmax(x):
     if len(x.shape) > 1:
         # Matrix
-        max_vals = np.expand_dims(np.max(x, axis = 1), 0).T
+        max_vals = np.expand_dims(np.max(x, axis=1), 0).T
         x = x - max_vals
         x = np.exp(x)
-        x_col_sums = np.expand_dims(np.sum(x, axis = 1), 0).T
-        x = x/x_col_sums
-        
+        x_col_sums = np.expand_dims(np.sum(x, axis=1), 0).T
+        x = x / x_col_sums
+
     else:
         # Vector
         max_val = np.max(x)
         x = x - max_val
         x = np.exp(x)
         x_sum = np.sum(x)
-        x = x/x_sum
-    return(x)
+        x = x / x_sum
+    return (x)
 
 
 def pad_sequences(sequences, max_sequence_length):
-
     if max_sequence_length is None:
         max_sequence_length = max([len(sequence) for sequence in sequences])
 
@@ -103,21 +105,84 @@ def pad_sequences(sequences, max_sequence_length):
     sequences_mask = []
 
     for s in sequences:
-        padded_sequence = s[:max_sequence_length] 
+        padded_sequence = s[:max_sequence_length]
         sequence_mask = [True for _ in padded_sequence]
-        
-        while len(padded_sequence) < max_sequence_length: 
+
+        while len(padded_sequence) < max_sequence_length:
             padded_sequence.append(PAD_ID)
             sequence_mask.append(False)
 
         padded_sequences.append(padded_sequence)
         sequences_mask.append(sequence_mask)
-    return(padded_sequences, sequences_mask, max_sequence_length)
+    return (padded_sequences, sequences_mask, max_sequence_length)
 
-def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = True):
-    
+
+
+def pad_character_sequences(character_mapping, sequences, max_word_length, max_sequence_length, char_embedding_size):
+    # Note here that sequences would be an array of sentences
+    # where each sentence is made up of words
+
+    if max_word_length is None:
+        # Add 2 for the <START> and <END> tokens
+        max_word_length = max([len(word) for sequence in sequences for word in sequence.split()]) + 2
+
+    sequences_char_index = []
+    sequences_char_mask = []
+
+    for sequence in sequences:
+        sequence_char_index = []
+        sequence_char_mask = []
+
+        for word in sequence.split()[:max_sequence_length]:
+            word_char_index = []
+            word_char_mask = []
+
+            # Add the start token
+            word_char_index.append(character_mapping["<START>"])
+            word_char_mask.append([True] * char_embedding_size)
+
+            # Add the characters in the word
+            for char in word[:max_word_length]:
+                # Map the character embeddings for the word
+                word_char_index.append(character_mapping[char])
+                word_char_mask.append([True] * char_embedding_size)
+
+            # Add the end token
+            word_char_index.append(character_mapping["<END>"])
+            word_char_mask.append([True] * char_embedding_size)
+
+            # Pad the character representation of the word
+            while len(word_char_mask) < max_word_length:
+                word_char_index.append(character_mapping["<PAD>"])
+                word_char_mask.append([False] * char_embedding_size)
+
+            sequence_char_index.append(word_char_index)
+            sequence_char_mask.append(word_char_mask)
+
+        while len(sequence_char_mask) < max_sequence_length:
+            word_char_index = []
+            word_char_mask = []
+
+            # Create the mask paddings for the words
+            while len(word_char_mask) < max_word_length:
+                word_char_index.append(character_mapping["<PAD>"])
+                word_char_mask.append([False] * char_embedding_size)
+
+            sequence_char_index.append(word_char_index)
+            sequence_char_mask.append(word_char_mask)
+
+        sequences_char_index.append(sequence_char_index)
+        sequences_char_mask.append(sequence_char_mask)
+
+    return np.array(sequences_char_index), np.array(sequences_char_mask), np.array(max_word_length)
+
+
+
+
+
+def batches(data, is_train=True, batch_size=24, window_size=3, shuffle=True):
     n_samples = len(data["context"])
-    n_buckets = n_samples//batch_size + 1
+    n_buckets = n_samples // batch_size + 1
     logging.debug("Number of samples: {}".format(n_samples))
     logging.debug("Number of buckets: {}".format(n_buckets))
     # If it is training then we simply get a window of batch_size * 3 and randomly sample 
@@ -130,8 +195,7 @@ def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = T
         if shuffle:
             np.random.shuffle(batch_indices)
 
-
-        for i in batch_indices[::-1]:
+        for i in batch_indices:
 
             start = i * batch_size
             end = min(start + batch_size * window_size, n_samples)
@@ -144,7 +208,13 @@ def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = T
             # logging.debug("selected indices size: {}".format(len(indices)))
             # logging.debug(indices)
             ret = {}
+            # print("word_context")
+            # print(data["word_context"])
+            # print("word_question")
+            # print(data["word_question"])
             for k, v in data.items():
+                # print(k)
+                # print(len(v))
                 ret[k] = v[indices]
             yield ret
     else:
@@ -160,15 +230,15 @@ def batches(data, is_train = True, batch_size = 24, window_size = 3, shuffle = T
                 ret[k] = v[indices[start:end]]
             yield ret
 
-def get_random_samples(data, num_samples):  
+
+def get_random_samples(data, num_samples):
     total_sample_num = len(data["context"])
-    indices = np.random.choice(np.arange(total_sample_num), num_samples, replace = False)
+    indices = np.random.choice(np.arange(total_sample_num), num_samples, replace=False)
     # logging.debug("Number of indices selected: {}".format(len(indices)))
     ret = {}
     for k, v in data.items():
         ret[k] = v[indices]
-    return(ret)
-
+    return (ret)
 
 
 class Progbar(object):
@@ -225,15 +295,15 @@ class Progbar(object):
             numdigits = int(np.floor(np.log10(self.target))) + 1
             barstr = '%%%dd/%%%dd [' % (numdigits, numdigits)
             bar = barstr % (current, self.target)
-            prog = float(current)/self.target
-            prog_width = int(self.width*prog)
+            prog = float(current) / self.target
+            prog_width = int(self.width * prog)
             if prog_width > 0:
-                bar += ('='*(prog_width-1))
+                bar += ('=' * (prog_width - 1))
                 if current < self.target:
                     bar += '>'
                 else:
                     bar += '='
-            bar += ('.'*(self.width-prog_width))
+            bar += ('.' * (self.width - prog_width))
             bar += ']'
             sys.stdout.write(bar)
             self.total_width = len(bar)
@@ -242,7 +312,7 @@ class Progbar(object):
                 time_per_unit = (now - self.start) / current
             else:
                 time_per_unit = 0
-            eta = time_per_unit*(self.target - current)
+            eta = time_per_unit * (self.target - current)
             info = ''
             if current < self.target:
                 info += ' - ETA: %ds' % eta
@@ -256,7 +326,7 @@ class Progbar(object):
 
             self.total_width += len(info)
             if prev_total_width > self.total_width:
-                info += ((prev_total_width-self.total_width) * " ")
+                info += ((prev_total_width - self.total_width) * " ")
 
             sys.stdout.write(info)
             sys.stdout.flush()

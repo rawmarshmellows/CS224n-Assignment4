@@ -1,13 +1,14 @@
 import logging
-from utils.general import pad_sequences
-from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM
+from utils.general import pad_sequences, pad_character_sequences
+from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM, word_embedding_lookup, \
+    character_embedding_lookup, conv1d, mask_for_character_embeddings
 from models.model import Model
 import tensorflow as tf
 from functools import reduce
 from operator import mul
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class Encoder(object):
@@ -27,17 +28,14 @@ class Encoder(object):
 
         return (output_concat, (final_state_fw, final_state_bw))
 
-        # def _character_level_embeddings(self, inputs, filter_sizes, num_filters, dropout):
-
-        #     input_flattened = tf.reshape(inputs, )
 
 
 class Attention(object):
     def __init__(self):
         pass
 
-    # TODO: 
-    # _flatten and _reconstruct referenced from ??
+
+    # _flatten and _reconstruct referenced from BiDAF creator
     def _similarity_matrix(self, Hq, Hc, max_question_length, max_context_length, question_mask, context_mask, is_train,
                            dropout):
         # (BS, MCL, MQL, HS * 2)
@@ -190,62 +188,114 @@ class Decoder(object):
 class BiDAF(Model):
     """
     BS : Batch size
+    MCL : Max context length
     MWL : Max word length
-    CES
+    CES : Character embedding size
 
     """
-    def __init__(self, result_saver, embeddings, config):
+    def __init__(self, result_saver, embeddings, character_embeddings, character_mappings, config):
         self.embeddings = embeddings
+
+        # TODO: Create another class to handle the lookup for the character embeddings
+        self.character_embeddings = character_embeddings
+        self.character_mappings = character_mappings
         self.config = config
         self.encoder = Encoder(config.hidden_size)
         self.decoder = Decoder(config.hidden_size)
         self.attention = Attention()
+
         # ==== set up placeholder tokens ========
         self.add_placeholders()
 
         # ==== assemble pieces ====
         with tf.variable_scope("Attention", initializer=tf.uniform_unit_scaling_initializer(1.0)):
-            self.question_embeddings, self.context_embeddings = self.setup_embeddings()
+            self.question_embeddings, self.context_embeddings = self.setup_word_embeddings()
+            self.question_char_embeddings, self.context_char_embeddings = self.setup_character_embeddings()
             self.build(config = config, result_saver = result_saver)
 
     def add_placeholders(self):
+
+        # Word embedding placeholders
         self.context_placeholder = tf.placeholder(tf.int32, shape=(None, None))
         self.context_mask_placeholder = tf.placeholder(tf.bool, shape=(None, None))
+        self.max_context_length_placeholder = tf.placeholder(tf.int32)
         self.question_placeholder = tf.placeholder(tf.int32, shape=(None, None))
         self.question_mask_placeholder = tf.placeholder(tf.bool, shape=(None, None))
+        self.max_question_length_placeholder = tf.placeholder(tf.int32)
 
-        self.context_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) # (BS, MWL, CES)
-        self.context_char_mask_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) #
+        # Character embedding placeholders
+        self.context_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) # (BS, MCL, MWL)
+        self.context_char_mask_placeholder = \
+            tf.placeholder(tf.bool, shape = (None, None, None, self.config.character_embedding_size)) # (BS, MCL, MWL, CES)
+        self.max_context_word_length_placeholder =  tf.placeholder(tf.int32)
+        self.question_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None))
+        self.question_char_mask_placeholder = \
+            tf.placeholder(tf.bool, shape = (None, None, None, self.config.character_embedding_size)) # (BS, MQL, MWL, CES)
+        self.max_question_word_length_placeholder =  tf.placeholder(tf.int32)
 
+        # Define answer placeholders
         self.answer_span_start_placeholder = tf.placeholder(tf.int32)
         self.answer_span_end_placeholder = tf.placeholder(tf.int32)
 
-        self.max_context_length_placeholder = tf.placeholder(tf.int32)
-        self.max_question_length_placeholder = tf.placeholder(tf.int32)
+        # Define model placeholders
         self.dropout_placeholder = tf.placeholder(tf.float32)
 
-    def setup_embeddings(self):
-        with tf.variable_scope("embeddings"):
+    def setup_word_embeddings(self):
+        with tf.variable_scope("word_embeddings"):
             if self.config.retrain_embeddings:
                 embeddings = tf.get_variable("embeddings", initializer=self.embeddings)
             else:
                 embeddings = tf.cast(self.embeddings, dtype=tf.float32)
 
-            question_embeddings = self._embedding_lookup(embeddings, self.question_placeholder,
-                                                         self.max_question_length_placeholder)
-            context_embeddings = self._embedding_lookup(embeddings, self.context_placeholder,
-                                                        self.max_context_length_placeholder)
+            question_embeddings = word_embedding_lookup(self.question_placeholder,
+                                                        self.max_question_length_placeholder,
+                                                        embeddings,
+                                                        self.config.embedding_size)
+            context_embeddings = word_embedding_lookup(self.context_placeholder,
+                                                       self.max_context_length_placeholder,
+                                                       embeddings,
+                                                       self.config.embedding_size)
         return question_embeddings, context_embeddings
 
-    def _embedding_lookup(self, embeddings, indicies, max_length):
-        embeddings = tf.nn.embedding_lookup(embeddings, indicies)
-        embeddings = tf.reshape(embeddings, shape=[-1, max_length, self.config.embedding_size])
-        return embeddings
+    def setup_character_embeddings(self):
+        # Need to use the CPU so that our GPU doesn't run out of memory
+        with tf.variable_scope("character_embeddings"), tf.device("/cpu:0"):
+            character_embeddings = tf.get_variable("character_embeddings", initializer=self.character_embeddings)
+            question_char_embeddings = character_embedding_lookup(self.question_char_placeholder, character_embeddings)
+            logging.debug("question_char_embeddings shape is: {}".format(question_char_embeddings))
+            context_char_embeddings = character_embedding_lookup(self.context_char_placeholder, character_embeddings)
+            logging.debug("context_char_embeddings shape is: {}".format(context_char_embeddings))
+        return question_char_embeddings, context_char_embeddings
 
     def add_preds_op(self):
 
-        # First we set up the encoding
+        # First we set up the embeddings
+        # TODO: refactor out to another class after Highway network has been implemented
+        # with tf.variable_scope("character_layer"):
+        #     if self.config.use_character_embeddings:
+        #         question_char_embeddings = \
+        #             mask_for_character_embeddings(self.question_char_embeddings, self.question_char_mask_placeholder)
+        #         context_char_embeddings = \
+        #             mask_for_character_embeddings(self.context_char_embeddings, self.context_char_mask_placeholder)
+        #
+        #         filter_widths = self.config.filter_widths.split(",")
+        #         num_filters = self.config.num_filters.split(",")
+        #
+        #         question_char_rep = conv1d(question_char_embeddings, filter_widths, num_filters, scope="question")
+        #
+        #         if self.config.share_character_cnn_weights:
+        #             tf.get_variable_scope().reuse_variables()
+        #             context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="question")
+        #         else:
+        #             context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="context")
+        #
+        #         question_embeddings = tf.concat([self.question_embeddings, question_char_rep], 2)
+        #         context_embeddings = tf.concat([self.context_embeddings, context_char_rep], 2)
+        #     else:
+        #         question_embeddings = self.question_embeddings
+        #         context_embeddings = self.context_embeddings
 
+        # TODO: create a highway network so that it is easier for the model to choose relevant representations
         logging.info(("-" * 10, "ENCODING ", "-" * 10))
         with tf.variable_scope("q"):
             Hq, (q_final_state_fw, q_final_state_bw) = self.encoder.encode(self.question_embeddings,
@@ -259,13 +309,12 @@ class BiDAF(Model):
                                                                                initial_state_bw=q_final_state_bw,
                                                                                dropout=self.dropout_placeholder,
                                                                                reuse=True)
-            else:
-                with tf.variable_scope("c"):
-                    Hc, (c_final_state_fw, q_final_state_fw) = self.encoder.encode(self.context_embeddings,
-                                                                                   self.context_mask_placeholder,
-                                                                                   initial_state_fw=q_final_state_fw,
-                                                                                   initial_state_bw=q_final_state_bw,
-                                                                                   dropout=self.dropout_placeholder)
+        with tf.variable_scope("c"):
+            Hc, (_, _) = self.encoder.encode(self.context_embeddings,
+                                             self.context_mask_placeholder,
+                                             initial_state_fw=q_final_state_fw,
+                                             initial_state_bw=q_final_state_bw,
+                                             dropout=self.dropout_placeholder)
 
         # Now setup the attention module
         with tf.variable_scope("attention"):
@@ -321,35 +370,59 @@ class BiDAF(Model):
 
         return train_op
 
-    def create_feed_dict(self, context, question, answer_span_start_batch=None, answer_span_end_batch=None,
-                         is_train=True):
+    def create_feed_dict(self, data, is_train=True):
 
         # logging.debug("len(context): {}".format(len(context))) 
         # logging.debug("len(question): {}".format(len(question)))
+        context = data["context"]
+        question = data["question"]
+        answer_span_start = data["answer_span_start"]
+        answer_span_end = data["answer_span_end"]
 
-        context_batch, context_mask, max_context_length = pad_sequences(context,
+        context_padded, context_mask, max_context_length = pad_sequences(context,
                                                                         max_sequence_length=self.config.max_context_length)
-        question_batch, question_mask, max_question_length = pad_sequences(question,
+        question_padded, question_mask, max_question_length = pad_sequences(question,
                                                                            max_sequence_length=self.config.max_question_length)
+
+        # Now we need to create the character embeddings from the word context and word questions
+        # right now we only have the words, we need to map the words to characters
+
+        padded_char_context, \
+        char_context_mask, \
+        max_context_word_length = pad_character_sequences(self.character_mappings, data["word_context"],
+                                                self.config.max_word_length, max_context_length,
+                                               self.config.character_embedding_size)
+        padded_char_question,\
+        char_question_mask, \
+        max_question_word_length = pad_character_sequences(self.character_mappings, data["word_question"],
+                                                self.config.max_word_length, max_question_length,
+                                                self.config.character_embedding_size)
 
         # logging.debug("context_mask: {}".format(len(context_mask)))
         # logging.debug("question_mask: {}".format(len(question_mask)))
 
-        feed_dict = {self.context_placeholder: context_batch,
+
+        feed_dict = {self.context_placeholder: context_padded,
                      self.context_mask_placeholder: context_mask,
-                     self.question_placeholder: question_batch,
-                     self.question_mask_placeholder: question_mask,
                      self.max_context_length_placeholder: max_context_length,
-                     self.max_question_length_placeholder: max_question_length}
+                     self.question_placeholder: question_padded,
+                     self.question_mask_placeholder: question_mask,
+                     self.max_question_length_placeholder: max_question_length,
+                     self.context_char_placeholder: padded_char_context,
+                     self.context_char_mask_placeholder: char_context_mask,
+                     self.max_context_word_length_placeholder: max_context_word_length,
+                     self.question_char_placeholder: padded_char_question,
+                     self.question_char_mask_placeholder: char_question_mask,
+                     self.max_question_word_length_placeholder: max_question_word_length}
 
         if is_train:
             feed_dict[self.dropout_placeholder] = self.config.keep_prob
         else:
             feed_dict[self.dropout_placeholder] = 1.0
 
-        if answer_span_start_batch is not None and answer_span_end_batch is not None:
-            feed_dict[self.answer_span_start_placeholder] = answer_span_start_batch
-            feed_dict[self.answer_span_end_placeholder] = answer_span_end_batch
+        if answer_span_start is not None and answer_span_end is not None:
+            feed_dict[self.answer_span_start_placeholder] = answer_span_start
+            feed_dict[self.answer_span_end_placeholder] = answer_span_end
 
         return feed_dict
 

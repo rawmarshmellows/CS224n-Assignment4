@@ -6,12 +6,10 @@ import tensorflow as tf
 from os.path import join as pjoin
 from abc import ABCMeta, abstractmethod
 
-
 logging.basicConfig(level=logging.INFO)
 
 
 class Model(metaclass=ABCMeta):
-
     @abstractmethod
     def add_placeholders(self):
         pass
@@ -29,12 +27,7 @@ class Model(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def create_feed_dict(self, context, question, answer_span_start_batch=None, answer_span_end_batch=None,
-                         is_train=True):
-        pass
-
-    @abstractmethod
-    def setup_embeddings(self):
+    def create_feed_dict(self, data, is_train=True):
         pass
 
     def build(self, config, result_saver):
@@ -44,13 +37,11 @@ class Model(metaclass=ABCMeta):
         self.loss = self.add_loss_op(self.preds)
         self.train_op = self.add_training_op(self.loss)
 
-
-
     def train(self, session, train, val):
         variables = tf.trainable_variables()
         num_vars = np.sum([np.prod(v.get_shape().as_list()) for v in variables])
         logging.info("Number of variables in models: {}".format(num_vars))
-        for i in range(self.config.num_epochs):
+        for _ in range(self.config.num_epochs):
             self.run_epoch(session, train, val, log=self.config.log)
 
     def run_epoch(self, session, train, val, log):
@@ -65,7 +56,7 @@ class Model(metaclass=ABCMeta):
             _, loss = self.optimize(session, train_batch)
             progress.update(i, [("training loss", loss)])
             self.result_saver.save("losses", loss)
-        
+
             if i % self.config.eval_num == 0 or i == num_batches:
 
                 # Randomly get some samples from the dataset
@@ -87,7 +78,7 @@ class Model(metaclass=ABCMeta):
                                                                                     self.config.samples_used_for_evaluation))
 
                 # First evaluate on the training set
-                f1_train, EM_train = self.evaluate_answer(session, train_samples,use_best_span=True)
+                f1_train, EM_train = self.evaluate_answer(session, train_samples, use_best_span=True)
 
                 # Then evaluate on the val set
                 f1_val, EM_val = self.evaluate_answer(session, val_samples, use_best_span=True)
@@ -105,7 +96,7 @@ class Model(metaclass=ABCMeta):
                 self.result_saver.save("f1_val", f1_val)
                 self.result_saver.save("EM_val", EM_val)
                 batches_trained = 1 if self.result_saver.is_empty("batch_indices") \
-                else self.result_saver.get("batch_indices")[-1] + min(i + 1, self.config.eval_num)
+                    else self.result_saver.get("batch_indices")[-1] + min(i + 1, self.config.eval_num)
 
                 self.result_saver.save("batch_indices", batches_trained)
 
@@ -115,13 +106,9 @@ class Model(metaclass=ABCMeta):
                     saver.save(session, pjoin(self.config.train_dir, self.config.model), global_step=batches_trained)
                     best_f1 = f1_val
 
-    def optimize(self, session, batch):
-        context = batch["context"]
-        question = batch["question"]
-        answer_span_start = batch["answer_span_start"]
-        answer_span_end = batch["answer_span_end"]
+    def optimize(self, session, batch_data):
 
-        input_feed = self.create_feed_dict(context, question, answer_span_start, answer_span_end)
+        input_feed = self.create_feed_dict(batch_data)
         output_feed = [self.train_op, self.loss]
 
         outputs = session.run(output_feed, input_feed)
@@ -169,28 +156,10 @@ class Model(metaclass=ABCMeta):
 
         return answer_word_pred, answer_word_truth
 
+    def decode(self, session, batch_data):
 
+        input_feed = self.create_feed_dict(batch_data, is_train = False)
 
-    def test(self, session, val):
-        context = val["context"]
-        question = val["question"]
-        answer_span_start = val["answer_span_start"]
-        answer_span_end = val["answer_span_end"]
-
-        input_feed = self.create_feed_dict(context, question, answer_span_start, answer_span_end, is_train=False)
-        output_feed = self.loss
-
-        outputs = session.run(output_feed, input_feed)
-
-        return outputs
-
-    def decode(self, session, batch):
-        context = batch["context"]
-        question = batch["question"]
-        answer_span_start = batch["answer_span_start"]
-        answer_span_end = batch["answer_span_end"]
-
-        input_feed = self.create_feed_dict(context, question, answer_span_start, answer_span_end, is_train=False)
         output_feed = self.preds
 
         start, end = session.run(output_feed, input_feed)
@@ -214,12 +183,3 @@ class Model(metaclass=ABCMeta):
         # logging.debug("end_index: {}".format(end_index))
 
         return start_index, end_index
-
-    def validate(self, sess, val):
-        valid_cost = self.test(sess, val)
-
-        return valid_cost
-
-
-
-

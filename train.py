@@ -1,12 +1,12 @@
 import os
 from os.path import join as pjoin
-import json
+import datetime
 import tensorflow as tf
 import logging
 from models.BiDAF import BiDAF
 from models.Baseline import Baseline
 from models.Attention import LuongAttention
-from utils.data_reader import load_and_preprocess_data, load_word_embeddings
+from utils.data_reader import load_and_preprocess_data, load_word_embeddings, create_character_embeddings
 from utils.result_saver import ResultSaver
 
 logging.basicConfig(level=logging.INFO)
@@ -25,8 +25,12 @@ tf.app.flags.DEFINE_integer("samples_used_for_evaluation", 500,
 tf.app.flags.DEFINE_integer("num_epochs", 10, "Number of Epochs")
 tf.app.flags.DEFINE_integer("max_context_length", None, "Maximum length for the context")
 tf.app.flags.DEFINE_integer("max_question_length", None, "Maximum length for the question")
+tf.app.flags.DEFINE_integer("character_embedding_size", 50, "Character embedding size")
+tf.app.flags.DEFINE_integer("max_word_length", None, "Maximum number of characters in a word")
+
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "Data directory")
-tf.app.flags.DEFINE_string("train_dir", None, "Saved training parameters directory")
+tf.app.flags.DEFINE_string("train_dir", "train/{}".format(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+), "Saved training parameters directory")
 tf.app.flags.DEFINE_string("retrain_embeddings", False, "Whether or not to retrain the embeddings")
 tf.app.flags.DEFINE_string("share_encoder_weights", False, "Whether or not to share the encoder weights")
 tf.app.flags.DEFINE_string("learning_rate_annealing", False, "Whether or not to anneal the learning rate")
@@ -35,8 +39,10 @@ tf.app.flags.DEFINE_string("log", True, "Whether or not to log the metrics durin
 tf.app.flags.DEFINE_string("optimizer", "adam", "The optimizer to be used ")
 tf.app.flags.DEFINE_string("model", "BiDAF", "Model type")
 tf.app.flags.DEFINE_string("find_best_span", True, "Whether find the span with the highest probability")
-tf.app.flags.DEFINE_string("filter_heights", "5", "The number of characters to include per filter")
-tf.app.flags.DEFINE_string("use_character_embeddings", True, "Whether or not to use the character embeddings")
+tf.app.flags.DEFINE_string("filter_widths", "5", "The number of characters to include per filter (separated by ',')")
+tf.app.flags.DEFINE_string("num_filters", "100", "The number of filters to be used for each filter height (separated by ',')")
+tf.app.flags.DEFINE_string("use_character_embeddings", False, "Whether or not to use the character embeddings")
+tf.app.flags.DEFINE_string("share_character_cnn_weights", True, "Whether or not to share the CNN weights used to find the character embeddings for words")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -57,24 +63,32 @@ def initialize_model(session, train_dir):
         checkpoint = tf.train.get_checkpoint_state(train_dir)
         saver.restore(session, checkpoint.model_checkpoint_path)
 
+
 def main(_):
     # load the data
     train, val = load_and_preprocess_data(FLAGS.data_dir)
 
     # load the word matrix
     embeddings = load_word_embeddings(FLAGS.data_dir)
+    logging.info("Load word embeddings of size: {}".format(embeddings.shape))
 
+    # create the character matrix
+    character_embeddings, character_mappings = create_character_embeddings(FLAGS.data_dir,
+                                                                           FLAGS.character_embedding_size)
+    logging.info("Created character embeddings of size: {}".format(character_embeddings.shape))
+
+    # TODO: make this a Singleton object
     # Create the saver helper object
     result_saver = ResultSaver(FLAGS.train_dir)
 
     # now load the model
     # with tf.device("/cpu:0"):
-# if FLAGS.model == "BiDAF":
+    # if FLAGS.model == "BiDAF":
     # 	model = BiDAF(result_saver, embeddings, FLAGS)
 
 
     if FLAGS.model == "BiDAF":
-        model = BiDAF(result_saver, embeddings, FLAGS)
+        model = BiDAF(result_saver, embeddings, character_embeddings, character_mappings, FLAGS)
     elif FLAGS.model == "Baseline":
         model = Baseline(result_saver, embeddings, FLAGS)
     elif FLAGS.model == "LuongAttention":

@@ -220,8 +220,13 @@ class LuongAttention(Model):
 
         return train_op
 
-    def create_feed_dict(self, context, question, answer_span_start_batch=None, answer_span_end_batch=None,
+    def create_feed_dict(self, data,
                          is_train=True):
+
+        context = data["context"]
+        question = data["question"]
+        answer_span_start = data["answer_span_start"]
+        answer_span_end = data["answer_span_end"]
 
         # logging.debug("len(context): {}".format(len(context)))
         # logging.debug("len(question): {}".format(len(question)))
@@ -246,9 +251,9 @@ class LuongAttention(Model):
         else:
             feed_dict[self.dropout_placeholder] = 1.0
 
-        if answer_span_start_batch is not None and answer_span_end_batch is not None:
-            feed_dict[self.answer_span_start_placeholder] = answer_span_start_batch
-            feed_dict[self.answer_span_end_placeholder] = answer_span_end_batch
+        if answer_span_start is not None and answer_span_end is not None:
+            feed_dict[self.answer_span_start_placeholder] = answer_span_start
+            feed_dict[self.answer_span_end_placeholder] = answer_span_end
 
         return feed_dict
 
