@@ -1,6 +1,7 @@
 import os
 from os.path import join as pjoin
 import json
+import datetime
 import tensorflow as tf
 import logging
 from models.BiDAF import BiDAF
@@ -26,7 +27,8 @@ tf.app.flags.DEFINE_integer("num_epochs", 10, "Number of Epochs")
 tf.app.flags.DEFINE_integer("max_context_length", None, "Maximum length for the context")
 tf.app.flags.DEFINE_integer("max_question_length", None, "Maximum length for the question")
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "Data directory")
-tf.app.flags.DEFINE_string("train_dir", None, "Saved training parameters directory")
+tf.app.flags.DEFINE_string("train_dir", "train/{}".format(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+), "Saved training parameters directory")
 tf.app.flags.DEFINE_string("retrain_embeddings", False, "Whether or not to retrain the embeddings")
 tf.app.flags.DEFINE_string("share_encoder_weights", False, "Whether or not to share the encoder weights")
 tf.app.flags.DEFINE_string("learning_rate_annealing", False, "Whether or not to anneal the learning rate")

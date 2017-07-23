@@ -46,7 +46,7 @@ I have currently implemented 3 models:
 
 Note here that the only two required flags are the `--model` flag and the `--train_dir` flag, the other flags have default values and can be found in the `train.py` file.
 
-Another important flag is the `--eval_num` flag which specifies how often
+Another important flag is the `--eval_num` flag which specifies how often the model is saved
 
 ## Getting started (for notebook)
 1. Go to the root folder and type
