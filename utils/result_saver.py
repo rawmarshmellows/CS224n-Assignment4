@@ -13,6 +13,8 @@ class ResultSaver(object):
             "EM_val": [],
             "batch_indices": [],
             "losses": [],
+            "train_loss": [],
+            "val_loss": [],
             "batch_size": None
         }
         if os.path.exists(path):
@@ -26,6 +28,8 @@ class ResultSaver(object):
         self.data["EM_val"] = prev_data["EM_val"]
         self.data["batch_indices"] = prev_data["batch_indices"]
         self.data["losses"] = prev_data["losses"]
+        self.data["train_loss"] = prev_data["train_loss"]
+        self.data["val_loss"] = prev_data["val_loss"]
         self.data["batch_size"] = prev_data["batch_size"]
 
     def save(self, key, value):
@@ -36,10 +40,10 @@ class ResultSaver(object):
         pickle.dump(self.data, open(self.path, "wb"))
 
     def get(self, key):
-        return (self.data[key])
+        return self.data[key]
 
     def is_empty(self, key):
         if len(self.data[key]) == 0:
-            return (True)
+            return True
         else:
-            return (False)
+            return False

@@ -8,18 +8,11 @@ from functools import reduce
 from operator import mul
 
 
-logging.basicConfig(level=logging.DEBUG)
-
-
 class Encoder(object):
     def __init__(self, size):
         self.size = size
 
     def encode(self, inputs, masks, initial_state_fw=None, initial_state_bw=None, dropout=1.0, reuse=False):
-        # The character level embeddings
-        # if self.config.char_level_embeddings:
-        #     char_level_embeddings = self._character_level_embeddings(inputs, filter_sizes, num_filters, dropout)
-
 
         # The contextual level embeddings 
         output_concat, (final_state_fw, final_state_bw) = BiLSTM(inputs, masks, self.size, initial_state_fw,
@@ -29,13 +22,24 @@ class Encoder(object):
         return (output_concat, (final_state_fw, final_state_bw))
 
 
-
 class Attention(object):
     def __init__(self):
         pass
 
+    """
+    The intuition behind the vector/matrix manipulations behind the similarity matrix:
+    
+    So we know that:
+    Hq is the output of the Bi-RNN for the question of shape (BS, MQL, HS * 2)
+    Hc is the output of the Bi-RNN for the context of shape (BS, MCL, HS * 2)
+    
+    The idea behind using tf.tile to make:
+    Hq -> Hq_aug of shape (BS, MCL, MQL, HS * 2)
+    Hc -> Hc_aug of shape (BS, MCL, MQL, HS * 2) 
+    
+    """
 
-    # _flatten and _reconstruct referenced from BiDAF creator
+    # _flatten and reconstruct referenced from https://github.com/allenai/bi-att-flow
     def _similarity_matrix(self, Hq, Hc, max_question_length, max_context_length, question_mask, context_mask, is_train,
                            dropout):
         # (BS, MCL, MQL, HS * 2)
@@ -119,7 +123,8 @@ class Attention(object):
         weights_c2q = tf.nn.softmax(s)
 
         # (BS, MCL, MQL) @ (BS, MQL, HS * 2) -> (BS, MCL, HS * 2)
-        query_aware = weights_c2q @ Hq
+        # This just the weight sum of the question at each timestep of the context
+        context_aware_question = weights_c2q @ Hq
 
         # Q2C
 
@@ -128,17 +133,20 @@ class Attention(object):
         # maximum of those context words 
         score_q2c = tf.reduce_max(s, axis=-1)
 
-        # (BS, MCL)
+        # (BS, MCL, 1)
         weights_q2c = tf.expand_dims(tf.nn.softmax(score_q2c), -1)
 
         # (BS, HS)
-        context_aware = tf.reduce_sum(tf.multiply(weights_q2c, Hc), axis=1)
+        question_aware_context = tf.reduce_sum(tf.multiply(weights_q2c, Hc), axis=1)
 
         # (BS, MCL, HS * 2)
-        context_aware = tf.tile(tf.expand_dims(context_aware, 1), [1, max_context_length, 1])
+        question_aware_context = tf.tile(tf.expand_dims(question_aware_context, 1), [1, max_context_length, 1])
 
         # [(BS, MCL, HS * 2), (BS, MCL, HS * 2), (BS, MCL, HS * 2), (BS, MCL, HS * 2)]
-        biattention = tf.nn.tanh(tf.concat([Hc, query_aware, Hc * query_aware, Hc * context_aware], 2))
+        biattention = tf.nn.tanh(tf.concat([Hc,
+                                            context_aware_question,
+                                            Hc * context_aware_question,
+                                            Hc * question_aware_context], 2))
 
         return (biattention)
 
@@ -155,30 +163,30 @@ class Decoder(object):
             m2, _ = BiLSTM(m1, mask, self.output_size, dropout=dropout)
 
         # Original BiDAF implementation
-        with tf.variable_scope("start"):
-            start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
-            start = prepro_for_softmax(start, mask)
-
-        with tf.variable_scope("end"):
-            end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
-            end = prepro_for_softmax(end, mask)
-
-        # My implementation 1
         # with tf.variable_scope("start"):
-        #     start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+        #     start = logits_helper(tf.concat([inputs, m1], 2), max_input_length, dropout=dropout)
         #     start = prepro_for_softmax(start, mask)
         #
         # with tf.variable_scope("end"):
-        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
+        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
         #     end = prepro_for_softmax(end, mask)
+
+        # My implementation 1
+        with tf.variable_scope("start"):
+            start = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
+            start = prepro_for_softmax(start, mask)
+
+        with tf.variable_scope("end"):
+            end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
+            end = prepro_for_softmax(end, mask)
 
         # My implementation 2
         # with tf.variable_scope("start"):
-        #     start = logits_helper(m2, max_input_length)
+        #     start = logits_helper(m2, max_input_length, dropout=dropout)
         #     start = prepro_for_softmax(start, mask)
 
         # with tf.variable_scope("end"):
-        #     end = logits_helper(m2, max_input_length)
+        #     end = logits_helper(m2, max_input_length, dropout=dropout)
         #     end = prepro_for_softmax(end, mask)
 
 
@@ -193,6 +201,7 @@ class BiDAF(Model):
     CES : Character embedding size
 
     """
+
     def __init__(self, result_saver, embeddings, character_embeddings, character_mappings, config):
         self.embeddings = embeddings
 
@@ -211,7 +220,7 @@ class BiDAF(Model):
         with tf.variable_scope("Attention", initializer=tf.uniform_unit_scaling_initializer(1.0)):
             self.question_embeddings, self.context_embeddings = self.setup_word_embeddings()
             self.question_char_embeddings, self.context_char_embeddings = self.setup_character_embeddings()
-            self.build(config = config, result_saver = result_saver)
+            self.build(config=config, result_saver=result_saver)
 
     def add_placeholders(self):
 
@@ -224,14 +233,16 @@ class BiDAF(Model):
         self.max_question_length_placeholder = tf.placeholder(tf.int32)
 
         # Character embedding placeholders
-        self.context_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None)) # (BS, MCL, MWL)
+        self.context_char_placeholder = tf.placeholder(tf.int32, shape=(None, None, None))  # (BS, MCL, MWL)
         self.context_char_mask_placeholder = \
-            tf.placeholder(tf.bool, shape = (None, None, None, self.config.character_embedding_size)) # (BS, MCL, MWL, CES)
-        self.max_context_word_length_placeholder =  tf.placeholder(tf.int32)
-        self.question_char_placeholder = tf.placeholder(tf.int32, shape = (None, None, None))
+            tf.placeholder(tf.bool,
+                           shape=(None, None, None, self.config.character_embedding_size))  # (BS, MCL, MWL, CES)
+        self.max_context_word_length_placeholder = tf.placeholder(tf.int32)
+        self.question_char_placeholder = tf.placeholder(tf.int32, shape=(None, None, None))
         self.question_char_mask_placeholder = \
-            tf.placeholder(tf.bool, shape = (None, None, None, self.config.character_embedding_size)) # (BS, MQL, MWL, CES)
-        self.max_question_word_length_placeholder =  tf.placeholder(tf.int32)
+            tf.placeholder(tf.bool,
+                           shape=(None, None, None, self.config.character_embedding_size))  # (BS, MQL, MWL, CES)
+        self.max_question_word_length_placeholder = tf.placeholder(tf.int32)
 
         # Define answer placeholders
         self.answer_span_start_placeholder = tf.placeholder(tf.int32)
@@ -262,8 +273,8 @@ class BiDAF(Model):
         with tf.variable_scope("character_embeddings"), tf.device("/cpu:0"):
             character_embeddings = tf.get_variable("character_embeddings", initializer=self.character_embeddings)
             question_char_embeddings = character_embedding_lookup(self.question_char_placeholder, character_embeddings)
-            logging.debug("question_char_embeddings shape is: {}".format(question_char_embeddings))
             context_char_embeddings = character_embedding_lookup(self.context_char_placeholder, character_embeddings)
+            logging.debug("question_char_embeddings shape is: {}".format(question_char_embeddings))
             logging.debug("context_char_embeddings shape is: {}".format(context_char_embeddings))
         return question_char_embeddings, context_char_embeddings
 
@@ -271,39 +282,40 @@ class BiDAF(Model):
 
         # First we set up the embeddings
         # TODO: refactor out to another class after Highway network has been implemented
-        # with tf.variable_scope("character_layer"):
-        #     if self.config.use_character_embeddings:
-        #         question_char_embeddings = \
-        #             mask_for_character_embeddings(self.question_char_embeddings, self.question_char_mask_placeholder)
-        #         context_char_embeddings = \
-        #             mask_for_character_embeddings(self.context_char_embeddings, self.context_char_mask_placeholder)
-        #
-        #         filter_widths = self.config.filter_widths.split(",")
-        #         num_filters = self.config.num_filters.split(",")
-        #
-        #         question_char_rep = conv1d(question_char_embeddings, filter_widths, num_filters, scope="question")
-        #
-        #         if self.config.share_character_cnn_weights:
-        #             tf.get_variable_scope().reuse_variables()
-        #             context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="question")
-        #         else:
-        #             context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="context")
-        #
-        #         question_embeddings = tf.concat([self.question_embeddings, question_char_rep], 2)
-        #         context_embeddings = tf.concat([self.context_embeddings, context_char_rep], 2)
-        #     else:
-        #         question_embeddings = self.question_embeddings
-        #         context_embeddings = self.context_embeddings
+        with tf.variable_scope("character_layer"):
+            if self.config.use_character_embeddings:
+                question_char_embeddings = \
+                    mask_for_character_embeddings(self.question_char_embeddings, self.question_char_mask_placeholder)
+                context_char_embeddings = \
+                    mask_for_character_embeddings(self.context_char_embeddings, self.context_char_mask_placeholder)
+
+                filter_widths = self.config.filter_widths.split(",")
+                num_filters = self.config.num_filters.split(",")
+
+                question_char_rep = conv1d(question_char_embeddings, filter_widths, num_filters, scope="question")
+
+                if self.config.share_character_cnn_weights:
+                    tf.get_variable_scope().reuse_variables()
+                    context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="question")
+                else:
+                    context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="context")
+
+                question_embeddings = tf.concat([self.question_embeddings, question_char_rep], 2)
+                context_embeddings = tf.concat([self.context_embeddings, context_char_rep], 2)
+            else:
+                question_embeddings = self.question_embeddings
+                context_embeddings = self.context_embeddings
 
         # TODO: create a highway network so that it is easier for the model to choose relevant representations
         logging.info(("-" * 10, "ENCODING ", "-" * 10))
+
         with tf.variable_scope("q"):
-            Hq, (q_final_state_fw, q_final_state_bw) = self.encoder.encode(self.question_embeddings,
+            Hq, (q_final_state_fw, q_final_state_bw) = self.encoder.encode(question_embeddings,
                                                                            self.question_mask_placeholder,
                                                                            dropout=self.dropout_placeholder)
 
             if self.config.share_encoder_weights:
-                Hc, (c_final_state_fw, q_final_state_fw) = self.encoder.encode(self.context_embeddings,
+                Hc, (c_final_state_fw, q_final_state_fw) = self.encoder.encode(context_embeddings,
                                                                                self.context_mask_placeholder,
                                                                                initial_state_fw=q_final_state_fw,
                                                                                initial_state_bw=q_final_state_bw,
@@ -316,6 +328,9 @@ class BiDAF(Model):
                                              initial_state_bw=q_final_state_bw,
                                              dropout=self.dropout_placeholder)
 
+        logging.info("Hq shape is: {}".format(Hq.get_shape()))
+        logging.info("Hc shape is: {}".format(Hc.get_shape()))
+
         # Now setup the attention module
         with tf.variable_scope("attention"):
             biattention = self.attention.calculate(Hq, Hc, self.max_question_length_placeholder,
@@ -324,21 +339,28 @@ class BiDAF(Model):
                                                    is_train=(self.dropout_placeholder < 1.0),
                                                    dropout=self.dropout_placeholder)
 
+        logging.info("biattention shape is: {}".format(biattention.get_shape()))
+
         logging.info(("-" * 10, " DECODING ", "-" * 10))
         with tf.variable_scope("decoding"):
             start, end = self.decoder.decode(biattention, self.context_mask_placeholder,
                                              self.max_context_length_placeholder, self.dropout_placeholder)
+        logging.info("start shape is: {}".format(start))
+        logging.info("end shape is: {}".format(end))
+
         return start, end
 
     def add_loss_op(self, preds):
         with tf.variable_scope("loss"):
-            answer_span_start_one_hot = tf.one_hot(self.answer_span_start_placeholder, self.max_context_length_placeholder)
+            answer_span_start_one_hot = tf.one_hot(self.answer_span_start_placeholder,
+                                                   self.max_context_length_placeholder)
             answer_span_end_one_hot = tf.one_hot(self.answer_span_end_placeholder, self.max_context_length_placeholder)
             logging.info("answer_span_start_one_hot.get_shape() {}".format(answer_span_start_one_hot.get_shape()))
             logging.info("answer_span_end_one_hot.get_shape() {}".format(answer_span_end_one_hot.get_shape()))
 
             start, end = preds
-            loss1 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=start, labels=answer_span_start_one_hot))
+            loss1 = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(logits=start, labels=answer_span_start_one_hot))
             loss2 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=end, labels=answer_span_end_one_hot))
             loss = loss1 + loss2
         return loss
@@ -374,29 +396,39 @@ class BiDAF(Model):
 
         # logging.debug("len(context): {}".format(len(context))) 
         # logging.debug("len(question): {}".format(len(question)))
+
+
+        # TODO: Maybe refactor so that the model has no knowledge of the data
+
+        # This makes more sense since the model shouldn't depend on the data, the model should be able to work on
+        # different kinds of data
+
         context = data["context"]
         question = data["question"]
+        word_context = data["word_context"]
+        word_question = data["word_question"]
         answer_span_start = data["answer_span_start"]
         answer_span_end = data["answer_span_end"]
 
         context_padded, context_mask, max_context_length = pad_sequences(context,
-                                                                        max_sequence_length=self.config.max_context_length)
+                                                                         max_sequence_length=self.config.max_context_length)
         question_padded, question_mask, max_question_length = pad_sequences(question,
-                                                                           max_sequence_length=self.config.max_question_length)
+                                                                            max_sequence_length=self.config.max_question_length)
 
+        logging.debug("\nMax context length is: {}".format(max_context_length))
         # Now we need to create the character embeddings from the word context and word questions
         # right now we only have the words, we need to map the words to characters
 
         padded_char_context, \
         char_context_mask, \
-        max_context_word_length = pad_character_sequences(self.character_mappings, data["word_context"],
-                                                self.config.max_word_length, max_context_length,
-                                               self.config.character_embedding_size)
-        padded_char_question,\
+        max_context_word_length = pad_character_sequences(self.character_mappings, word_context,
+                                                          self.config.max_word_length, max_context_length,
+                                                          self.config.character_embedding_size)
+        padded_char_question, \
         char_question_mask, \
-        max_question_word_length = pad_character_sequences(self.character_mappings, data["word_question"],
-                                                self.config.max_word_length, max_question_length,
-                                                self.config.character_embedding_size)
+        max_question_word_length = pad_character_sequences(self.character_mappings, word_question,
+                                                           self.config.max_word_length, max_question_length,
+                                                           self.config.character_embedding_size)
 
         # logging.debug("context_mask: {}".format(len(context_mask)))
         # logging.debug("question_mask: {}".format(len(question_mask)))
@@ -425,5 +457,3 @@ class BiDAF(Model):
             feed_dict[self.answer_span_end_placeholder] = answer_span_end
 
         return feed_dict
-
-

@@ -4,9 +4,6 @@ from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM
 from models.model import Model
 import tensorflow as tf
 
-logging.basicConfig(level=logging.INFO)
-
-
 
 class Encoder(object):
     def __init__(self, size):
@@ -34,8 +31,6 @@ class Attention(object):
     def __init__(self):
         pass
 
-    # TODO: 
-    # _flatten and _reconstruct referenced from ??
     def calculate(self, Hq, Hc, max_question_length, max_context_length, question_mask, context_mask, is_train,
                   dropout):
         # (BS, MCL, MQL, HS * 2)
@@ -61,6 +56,7 @@ class Attention(object):
         alignment_weights = tf.nn.softmax(score_prepro)
 
         # (BS, MPL, MQL) @ (BS, MQL, HS * 2) -> (BS, MPL, HS * 2)
+        # This is just the weighted sum of the questions for each timestep of the context
         context_aware = tf.matmul(alignment_weights, Hq)
 
         concat_hidden = tf.concat([context_aware, Hc], axis=2)
@@ -108,7 +104,7 @@ class LuongAttention(Model):
         # ==== assemble pieces ====
         with tf.variable_scope("Attention", initializer=tf.uniform_unit_scaling_initializer(1.0)):
             self.question_embeddings, self.context_embeddings = self.setup_embeddings()
-            self.build(config = config, result_saver = result_saver)
+            self.build(config=config, result_saver=result_saver)
 
     def add_placeholders(self):
         self.context_placeholder = tf.placeholder(tf.int32, shape=(None, None))
@@ -152,7 +148,7 @@ class LuongAttention(Model):
                                                                            dropout=self.dropout_placeholder)
 
             if self.config.share_encoder_weights:
-                Hc, (c_final_state_fw,  c_final_state_bw) = self.encoder.encode(self.context_embeddings,
+                Hc, (c_final_state_fw, c_final_state_bw) = self.encoder.encode(self.context_embeddings,
                                                                                self.context_mask_placeholder,
                                                                                initial_state_fw=q_final_state_fw,
                                                                                initial_state_bw=q_final_state_bw,
@@ -182,13 +178,15 @@ class LuongAttention(Model):
 
     def add_loss_op(self, preds):
         with tf.variable_scope("loss"):
-            answer_span_start_one_hot = tf.one_hot(self.answer_span_start_placeholder, self.max_context_length_placeholder)
+            answer_span_start_one_hot = tf.one_hot(self.answer_span_start_placeholder,
+                                                   self.max_context_length_placeholder)
             answer_span_end_one_hot = tf.one_hot(self.answer_span_end_placeholder, self.max_context_length_placeholder)
             logging.info("answer_span_start_one_hot.get_shape() {}".format(answer_span_start_one_hot.get_shape()))
             logging.info("answer_span_end_one_hot.get_shape() {}".format(answer_span_end_one_hot.get_shape()))
 
             start, end = preds
-            loss1 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=start, labels=answer_span_start_one_hot))
+            loss1 = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(logits=start, labels=answer_span_start_one_hot))
             loss2 = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=end, labels=answer_span_end_one_hot))
             loss = loss1 + loss2
         return loss
@@ -256,5 +254,3 @@ class LuongAttention(Model):
             feed_dict[self.answer_span_end_placeholder] = answer_span_end
 
         return feed_dict
-
-

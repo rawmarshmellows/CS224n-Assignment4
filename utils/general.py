@@ -8,7 +8,6 @@ from os.path import join as pjoin
 
 matplotlib.style.use('ggplot')
 
-logging.basicConfig(level=logging.INFO)
 PAD_ID = 0
 
 
@@ -26,22 +25,33 @@ def save_graphs(data, path):
 
     batch_indices = data["batch_indices"]
 
+    # Now plot the losses during evaluation
+    train_loss = data["train_loss"]
+    val_loss = data["val_loss"]
+    fig = plt.figure()
+    plt.plot(batch_indices, train_loss, 'b', batch_indices, val_loss, 'r')
+    plt.title("Batch size used: {}".format(data["batch_size"]))
+    plt.xlabel('batch number', fontsize=18)
+    plt.ylabel('average loss', fontsize=16)
+    fig.savefig(pjoin(path, "train-val_loss.png"))
+    plt.close(fig)
+
     # Now plot the f1, EM for the training and validation sets
     f1_train, f1_val = data["f1_train"], data["f1_val"]
 
     fig = plt.figure()
     plt.plot(batch_indices, f1_train, 'b', batch_indices, f1_val, 'r')
-    plt.title("Batch sized used: {}".format(data["batch_size"]))
+    plt.title("Batch size used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
     plt.ylabel('F1 Score', fontsize=16)
     fig.savefig(pjoin(path, "f1_scores.png"))
     plt.close(fig)
 
-    EM_train, EM_val = data["EM_train"], data["EM_val"]
+    exact_match_train, exact_match_val = data["EM_train"], data["EM_val"]
 
     fig = plt.figure()
-    plt.plot(batch_indices, EM_train, 'b', batch_indices, EM_val, 'r')
-    plt.title("Batch sized used: {}".format(data["batch_size"]))
+    plt.plot(batch_indices, exact_match_train, 'b', batch_indices, exact_match_val, 'r')
+    plt.title("Batch size used: {}".format(data["batch_size"]))
     plt.xlabel('batch number', fontsize=18)
     plt.ylabel('EM Score', fontsize=16)
     fig.savefig(pjoin(path, "EM_scores.png"))
@@ -195,7 +205,7 @@ def batches(data, is_train=True, batch_size=24, window_size=3, shuffle=True):
         if shuffle:
             np.random.shuffle(batch_indices)
 
-        for i in batch_indices:
+        for i in batch_indices[::-1]:
 
             start = i * batch_size
             end = min(start + batch_size * window_size, n_samples)
@@ -205,7 +215,7 @@ def batches(data, is_train=True, batch_size=24, window_size=3, shuffle=True):
             # logging.debug("window size: {}".format(len(window)))
             # logging.debug("batch_size: {}".format(batch_size))
             indices = np.random.choice(window, min(len(window), batch_size), replace=False)
-            # logging.debug("selected indices size: {}".format(len(indices)))
+            logging.debug("selected indices size: {}".format(len(indices)))
             # logging.debug(indices)
             ret = {}
             # print("word_context")

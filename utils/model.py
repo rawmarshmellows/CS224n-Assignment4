@@ -15,12 +15,14 @@ def prepro_for_softmax(logits, mask):
     return masked_logits
 
 
-def logits_helper(context, max_context_length):
+def logits_helper(context, max_context_length, dropout = None):
     d = context.get_shape().as_list()[-1]
     context = tf.reshape(context, shape=[-1, d])
     W = tf.get_variable("W1", initializer=tf.contrib.layers.xavier_initializer(), shape=(d, 1), dtype=tf.float32)
     pred = tf.matmul(context, W)
     pred = tf.reshape(pred, shape=[-1, max_context_length])
+    if dropout is not None:
+        pred = tf.nn.dropout(pred, dropout)
     return pred
 
 
@@ -70,15 +72,14 @@ def mask_for_character_embeddings(character_embeddings, mask):
     return (masked_chars)
 
 
-def conv1d(char_embeddings, filter_widths, num_filters, scope = None):
+def conv1d(char_embeddings, filter_widths, num_filters, scope=None):
     outs = []
     d = char_embeddings.get_shape().as_list()[-1]
     with tf.variable_scope(scope or "conv1d"):
-
         for filter_width, num_filter in zip(filter_widths, num_filters):
             with tf.variable_scope("conv_{}".format(filter_width)):
-                W = tf.get_variable("W", shape = [1, filter_width, d, num_filter])
-                b = tf.get_variable("b", shape = [num_filter])
+                W = tf.get_variable("W", shape=[1, filter_width, d, num_filter])
+                b = tf.get_variable("b", shape=[num_filter])
 
                 out = tf.nn.conv2d(char_embeddings, W, strides=[1, 1, 1, 1], padding="VALID")
                 out = tf.nn.relu(out + b)

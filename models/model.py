@@ -6,8 +6,6 @@ import tensorflow as tf
 from os.path import join as pjoin
 from abc import ABCMeta, abstractmethod
 
-logging.basicConfig(level=logging.INFO)
-
 
 class Model(metaclass=ABCMeta):
     @abstractmethod
@@ -52,63 +50,76 @@ class Model(metaclass=ABCMeta):
         progress = Progbar(target=num_batches)
         best_f1 = 0
         for i, train_batch in enumerate(
-                batches(train, is_train=True, batch_size=self.config.batch_size, window_size=self.config.window_size)):
+                batches(train, is_train=True,
+                        batch_size=self.config.batch_size,
+                        window_size=self.config.window_size,
+                        shuffle=True)):
+
             _, loss = self.optimize(session, train_batch)
             progress.update(i, [("training loss", loss)])
             self.result_saver.save("losses", loss)
 
-            if i % self.config.eval_num == 0 or i == num_batches:
+            if (i % self.config.eval_num == 0 and i != 0) or i == num_batches:
 
                 # Randomly get some samples from the dataset
                 train_samples = get_random_samples(train, self.config.samples_used_for_evaluation)
                 val_samples = get_random_samples(val, self.config.samples_used_for_evaluation)
 
                 # First evaluate on the training set for not using best span
-                f1_train, EM_train = self.evaluate_answer(session, train_samples, use_best_span=False)
+                f1_train, exact_match_train = self.evaluate_answer(session, train_samples, use_best_span=False)
 
                 # Then evaluate on the val set
-                f1_val, EM_val = self.evaluate_answer(session, val_samples, use_best_span=False)
+                f1_val, exact_match_val = self.evaluate_answer(session, val_samples, use_best_span=False)
 
                 if log:
                     print()
                     print("Not using best span")
-                    logging.info("F1: {}, EM: {}, for {} training samples".format(f1_train, EM_train,
+                    logging.info("F1: {}, EM: {}, for {} training samples".format(f1_train, exact_match_train,
                                                                                   self.config.samples_used_for_evaluation))
-                    logging.info("F1: {}, EM: {}, for {} validation samples".format(f1_val, EM_val,
+                    logging.info("F1: {}, EM: {}, for {} validation samples".format(f1_val, exact_match_val,
                                                                                     self.config.samples_used_for_evaluation))
 
                 # First evaluate on the training set
-                f1_train, EM_train = self.evaluate_answer(session, train_samples, use_best_span=True)
+                f1_train, exact_match_train = self.evaluate_answer(session, train_samples, use_best_span=True)
 
                 # Then evaluate on the val set
-                f1_val, EM_val = self.evaluate_answer(session, val_samples, use_best_span=True)
+                f1_val, exact_match_val = self.evaluate_answer(session, val_samples, use_best_span=True)
 
                 if log:
                     print()
                     print("Using best span")
-                    logging.info("F1: {}, EM: {}, for {} training samples".format(f1_train, EM_train,
+                    logging.info("F1: {}, EM: {}, for {} training samples".format(f1_train, exact_match_train,
                                                                                   self.config.samples_used_for_evaluation))
-                    logging.info("F1: {}, EM: {}, for {} validation samples".format(f1_val, EM_val,
+                    logging.info("F1: {}, EM: {}, for {} validation samples".format(f1_val, exact_match_val,
                                                                                     self.config.samples_used_for_evaluation))
 
+                # Now we should get the values for the loss of the training and validation sets to see how they differ
+                train_loss = self.evaluate_loss(session, train_samples)
+                val_loss = self.evaluate_loss(session, val_samples)
+
                 self.result_saver.save("f1_train", f1_train)
-                self.result_saver.save("EM_train", EM_train)
+                self.result_saver.save("EM_train", exact_match_train)
                 self.result_saver.save("f1_val", f1_val)
-                self.result_saver.save("EM_val", EM_val)
+                self.result_saver.save("EM_val", exact_match_val)
                 batches_trained = 1 if self.result_saver.is_empty("batch_indices") \
                     else self.result_saver.get("batch_indices")[-1] + min(i + 1, self.config.eval_num)
 
                 self.result_saver.save("batch_indices", batches_trained)
+                self.result_saver.save("train_loss", train_loss)
+                self.result_saver.save("val_loss", val_loss)
 
+                logging.info("Finished saving the graphs!")
                 save_graphs(self.result_saver.data, path=self.config.train_dir)
+
                 if f1_val > best_f1:
+                    logging.info("Saved new model!")
                     saver = tf.train.Saver()
                     saver.save(session, pjoin(self.config.train_dir, self.config.model), global_step=batches_trained)
                     best_f1 = f1_val
 
-    def optimize(self, session, batch_data):
+    def optimize(self, session, data):
 
-        input_feed = self.create_feed_dict(batch_data)
+        input_feed = self.create_feed_dict(data)
         output_feed = [self.train_op, self.loss]
 
         outputs = session.run(output_feed, input_feed)
@@ -123,9 +134,9 @@ class Model(metaclass=ABCMeta):
         result = evaluate(pred_answer, truth_answer)
 
         f1 = result["f1"]
-        EM = result["EM"]
+        exact_match = result["EM"]
 
-        return f1, EM
+        return f1, exact_match
 
     def predict_for_batch(self, session, data, use_best_span):
         start_indices = []
@@ -156,9 +167,23 @@ class Model(metaclass=ABCMeta):
 
         return answer_word_pred, answer_word_truth
 
+    def evaluate_loss(self, session, data):
+        losses = []
+        for batch in batches(data, is_train=False, shuffle=False):
+            loss = self.loss_for_batch(session, batch)
+            losses.append(loss)
+        return np.mean(np.array(losses))
+
+    def loss_for_batch(self, session, data):
+        input_feed = self.create_feed_dict(data)
+        output_feed = self.loss
+
+        loss = session.run(output_feed, input_feed)
+        return loss
+
     def decode(self, session, batch_data):
 
-        input_feed = self.create_feed_dict(batch_data, is_train = False)
+        input_feed = self.create_feed_dict(batch_data, is_train=False)
 
         output_feed = self.preds
 
