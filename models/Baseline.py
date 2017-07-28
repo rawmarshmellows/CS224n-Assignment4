@@ -1,6 +1,6 @@
 import logging
 from utils.general import pad_sequences
-from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM
+from utils.model import prepro_for_softmax, logits_helper, get_optimizer, biLSTM
 from models.model import Model
 import tensorflow as tf
 
@@ -20,7 +20,7 @@ class Encoder(object):
 
 
         # The contextual level embeddings
-        output_concat, (final_state_fw, final_state_bw) = BiLSTM(inputs, masks, self.size, initial_state_fw,
+        output_concat, (final_state_fw, final_state_bw) = biLSTM(inputs, masks, self.size, initial_state_fw,
                                                                  initial_state_bw, dropout, reuse)
         logging.debug("output shape: {}".format(output_concat.get_shape()))
 

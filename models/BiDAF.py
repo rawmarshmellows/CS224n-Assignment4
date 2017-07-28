@@ -1,7 +1,7 @@
 import logging
 from utils.general import pad_sequences, pad_character_sequences
-from utils.model import prepro_for_softmax, logits_helper, get_optimizer, BiLSTM, word_embedding_lookup, \
-    character_embedding_lookup, conv1d, mask_for_character_embeddings
+from utils.model import prepro_for_softmax, logits_helper, get_optimizer, biLSTM, word_embedding_lookup, \
+    character_embedding_lookup, conv1d, mask_for_character_embeddings, highway
 from models.model import Model
 import tensorflow as tf
 from functools import reduce
@@ -15,7 +15,7 @@ class Encoder(object):
     def encode(self, inputs, masks, initial_state_fw=None, initial_state_bw=None, dropout=1.0, reuse=False):
 
         # The contextual level embeddings 
-        output_concat, (final_state_fw, final_state_bw) = BiLSTM(inputs, masks, self.size, initial_state_fw,
+        output_concat, (final_state_fw, final_state_bw) = biLSTM(inputs, masks, self.size, initial_state_fw,
                                                                  initial_state_bw, dropout, reuse)
         logging.debug("output shape: {}".format(output_concat.get_shape()))
 
@@ -152,42 +152,48 @@ class Attention(object):
 
 
 class Decoder(object):
-    def __init__(self, output_size):
+    def __init__(self, output_size, config):
         self.output_size = output_size
+        self.config = config
 
     def decode(self, inputs, mask, max_input_length, dropout):
         with tf.variable_scope("m1"):
-            m1, _ = BiLSTM(inputs, mask, self.output_size, dropout=dropout)
+            m1, _ = biLSTM(inputs, mask, self.output_size, dropout=dropout)
 
         with tf.variable_scope("m2"):
-            m2, _ = BiLSTM(m1, mask, self.output_size, dropout=dropout)
+            m2, _ = biLSTM(m1, mask, self.output_size, dropout=dropout)
 
-        # Original BiDAF implementation
-        # with tf.variable_scope("start"):
-        #     start = logits_helper(tf.concat([inputs, m1], 2), max_input_length, dropout=dropout)
-        #     start = prepro_for_softmax(start, mask)
-        #
-        # with tf.variable_scope("end"):
-        #     end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
-        #     end = prepro_for_softmax(end, mask)
+        if self.config.bidaf_output_implementation == 1:
+            # Original BiDAF implementation
+            with tf.variable_scope("start"):
+                start = logits_helper(tf.concat([inputs, m1], 2), max_input_length, dropout=dropout)
+                start = prepro_for_softmax(start, mask)
 
-        # My implementation 1
-        with tf.variable_scope("start"):
-            start = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
-            start = prepro_for_softmax(start, mask)
+            with tf.variable_scope("end"):
+                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
+                end = prepro_for_softmax(end, mask)
 
-        with tf.variable_scope("end"):
-            end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
-            end = prepro_for_softmax(end, mask)
+        elif self.config.bidaf_output_implementation == 2:
+            # My implementation 1
+            with tf.variable_scope("start"):
+                start = logits_helper(tf.concat([inputs, m2], 2), max_input_length,
+                                      dropout=self.config.use_dropout_before_softmax)
+                start = prepro_for_softmax(start, mask)
 
-        # My implementation 2
-        # with tf.variable_scope("start"):
-        #     start = logits_helper(m2, max_input_length, dropout=dropout)
-        #     start = prepro_for_softmax(start, mask)
+            with tf.variable_scope("end"):
+                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length,
+                                    dropout=self.config.use_dropout_before_softmax)
+                end = prepro_for_softmax(end, mask)
 
-        # with tf.variable_scope("end"):
-        #     end = logits_helper(m2, max_input_length, dropout=dropout)
-        #     end = prepro_for_softmax(end, mask)
+        elif self.config.bidaf_output_implementation == 3:
+            # My implementation 2
+            with tf.variable_scope("start"):
+                start = logits_helper(m2, max_input_length, dropout=dropout)
+                start = prepro_for_softmax(start, mask)
+
+            with tf.variable_scope("end"):
+                end = logits_helper(m2, max_input_length, dropout=dropout)
+                end = prepro_for_softmax(end, mask)
 
 
         return (start, end)
@@ -210,14 +216,14 @@ class BiDAF(Model):
         self.character_mappings = character_mappings
         self.config = config
         self.encoder = Encoder(config.hidden_size)
-        self.decoder = Decoder(config.hidden_size)
+        self.decoder = Decoder(config.hidden_size, config=config)
         self.attention = Attention()
 
         # ==== set up placeholder tokens ========
         self.add_placeholders()
 
         # ==== assemble pieces ====
-        with tf.variable_scope("Attention", initializer=tf.uniform_unit_scaling_initializer(1.0)):
+        with tf.variable_scope("BiDAF", initializer=tf.uniform_unit_scaling_initializer(1.0)):
             self.question_embeddings, self.context_embeddings = self.setup_word_embeddings()
             self.question_char_embeddings, self.context_char_embeddings = self.setup_character_embeddings()
             self.build(config=config, result_saver=result_saver)
@@ -292,47 +298,61 @@ class BiDAF(Model):
                 filter_widths = self.config.filter_widths.split(",")
                 num_filters = self.config.num_filters.split(",")
 
-                question_char_rep = conv1d(question_char_embeddings, filter_widths, num_filters, scope="question")
+                with tf.variable_scope("question") as scope:
+                    question_char_rep = conv1d(question_char_embeddings, filter_widths, num_filters, scope=scope)
+                    if self.config.share_character_cnn_weights:
+                        tf.get_variable_scope().reuse_variables()
+                        context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope=scope)
+                    else:
+                        context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="context")
 
-                if self.config.share_character_cnn_weights:
-                    tf.get_variable_scope().reuse_variables()
-                    context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="question")
+
+                # Merge the word embeddings and character embeddings
+                question_concat = tf.concat([self.question_embeddings, question_char_rep], 2)
+                context_concat = tf.concat([self.context_embeddings, context_char_rep], 2)
+
+                if self.config.use_highway:
+                    with tf.variable_scope("highway"):
+                        question_embeddings = highway(question_concat,
+                                                      self.max_question_length_placeholder,
+                                                      scope="question")
+                        context_embeddings = highway(context_concat,
+                                                     self.max_context_length_placeholder,
+                                                     scope="context")
                 else:
-                    context_char_rep = conv1d(context_char_embeddings, filter_widths, num_filters, scope="context")
-
-                question_embeddings = tf.concat([self.question_embeddings, question_char_rep], 2)
-                context_embeddings = tf.concat([self.context_embeddings, context_char_rep], 2)
+                    question_embeddings = question_concat
+                    context_embeddings = context_concat
             else:
                 question_embeddings = self.question_embeddings
                 context_embeddings = self.context_embeddings
 
-        # TODO: create a highway network so that it is easier for the model to choose relevant representations
         logging.info(("-" * 10, "ENCODING ", "-" * 10))
 
-        with tf.variable_scope("q"):
+        with tf.variable_scope("question"):
             Hq, (q_final_state_fw, q_final_state_bw) = self.encoder.encode(question_embeddings,
                                                                            self.question_mask_placeholder,
                                                                            dropout=self.dropout_placeholder)
 
             if self.config.share_encoder_weights:
-                Hc, (c_final_state_fw, q_final_state_fw) = self.encoder.encode(context_embeddings,
-                                                                               self.context_mask_placeholder,
-                                                                               initial_state_fw=q_final_state_fw,
-                                                                               initial_state_bw=q_final_state_bw,
-                                                                               dropout=self.dropout_placeholder,
-                                                                               reuse=True)
-        with tf.variable_scope("c"):
-            Hc, (_, _) = self.encoder.encode(self.context_embeddings,
-                                             self.context_mask_placeholder,
-                                             initial_state_fw=q_final_state_fw,
-                                             initial_state_bw=q_final_state_bw,
-                                             dropout=self.dropout_placeholder)
+                Hc, (_, _) = self.encoder.encode(context_embeddings,
+                                                   self.context_mask_placeholder,
+                                                   initial_state_fw=q_final_state_fw,
+                                                   initial_state_bw=q_final_state_bw,
+                                                   dropout=self.dropout_placeholder,
+                                                   reuse=True)
+            else:
+                with tf.variable_scope("context"):
+                    Hc, (_, _) = self.encoder.encode(self.context_embeddings,
+                                                     self.context_mask_placeholder,
+                                                     initial_state_fw=q_final_state_fw,
+                                                     initial_state_bw=q_final_state_bw,
+                                                     dropout=self.dropout_placeholder)
 
         logging.info("Hq shape is: {}".format(Hq.get_shape()))
         logging.info("Hc shape is: {}".format(Hc.get_shape()))
 
         # Now setup the attention module
-        with tf.variable_scope("attention"):
+        with tf.variable_scope("biattention"):
             biattention = self.attention.calculate(Hq, Hc, self.max_question_length_placeholder,
                                                    self.max_context_length_placeholder,
                                                    self.question_mask_placeholder, self.context_mask_placeholder,

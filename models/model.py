@@ -53,7 +53,7 @@ class Model(metaclass=ABCMeta):
                 batches(train, is_train=True,
                         batch_size=self.config.batch_size,
                         window_size=self.config.window_size,
-                        shuffle=True)):
+                        shuffle=self.config.shuffle_batches)):
 
             _, loss = self.optimize(session, train_batch)
             progress.update(i, [("training loss", loss)])
