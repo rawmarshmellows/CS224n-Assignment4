@@ -14,7 +14,7 @@ from utils.result_saver import ResultSaver
 
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate")
 tf.app.flags.DEFINE_float("keep_prob", 0.80, "The probably that a node is kept after the affine transform")
-tf.app.flags.DEFINE_float("max_grad_norm", 5., "The maximum grad norm during backpropagation")
+tf.app.flags.DEFINE_float("max_grad_norm", 5., "The maximum grad norm during back-propagation")
 tf.app.flags.DEFINE_integer("batch_size", 24, "Number of batches to be used per training batch")
 tf.app.flags.DEFINE_integer("eval_num", 250, "Evaluate on validation set for every eval_num batches trained")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Word embedding size")
@@ -43,10 +43,10 @@ tf.app.flags.DEFINE_boolean("ema_for_weights", True, "Whether or not to use EMA 
 tf.app.flags.DEFINE_boolean("log", True, "Whether or not to log the metrics during training")
 tf.app.flags.DEFINE_boolean("find_best_span", True, "Whether find the span with the highest probability")
 
-tf.app.flags.DEFINE_boolean("use_character_embeddings", True, "Whether or not to use the character embeddings")
+tf.app.flags.DEFINE_boolean("use_character_embeddings", False, "Whether or not to use the character embeddings")
 tf.app.flags.DEFINE_boolean("share_character_cnn_weights", True,
                            "Whether or not to share the CNN weights used to find the character embeddings for words")
-tf.app.flags.DEFINE_boolean("use_dropout_before_softmax", True, "Whether not to add dropout to the scores of used for the prediction")
+tf.app.flags.DEFINE_boolean("use_dropout_before_softmax", False, "Whether not to add dropout to the scores of used for the prediction")
 tf.app.flags.DEFINE_boolean("use_highway", True, "Whether or not to use a highway network on the inputs for encoder")
 tf.app.flags.DEFINE_boolean("shuffle_batches", True, "Whether or not to shuffle the batches during training")
 

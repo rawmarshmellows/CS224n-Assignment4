@@ -152,9 +152,9 @@ class Attention(object):
 
 
 class Decoder(object):
-    def __init__(self, output_size, config):
+    def __init__(self, output_size, use_dropout_before_softmax):
         self.output_size = output_size
-        self.config = config
+        self.use_dropout_before_softmax = use_dropout_before_softmax
 
     def decode(self, inputs, mask, max_input_length, dropout):
         with tf.variable_scope("m1"):
@@ -166,37 +166,38 @@ class Decoder(object):
         if self.config.bidaf_output_implementation == 1:
             # Original BiDAF implementation
             with tf.variable_scope("start"):
-                start = logits_helper(tf.concat([inputs, m1], 2), max_input_length, dropout=dropout)
+                start = logits_helper(tf.concat([inputs, m1], 2), max_input_length)
                 start = prepro_for_softmax(start, mask)
 
             with tf.variable_scope("end"):
-                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length, dropout=dropout)
+                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
                 end = prepro_for_softmax(end, mask)
 
         elif self.config.bidaf_output_implementation == 2:
             # My implementation 1
             with tf.variable_scope("start"):
-                start = logits_helper(tf.concat([inputs, m2], 2), max_input_length,
-                                      dropout=self.config.use_dropout_before_softmax)
+                start = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
                 start = prepro_for_softmax(start, mask)
 
             with tf.variable_scope("end"):
-                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length,
-                                    dropout=self.config.use_dropout_before_softmax)
+                end = logits_helper(tf.concat([inputs, m2], 2), max_input_length)
                 end = prepro_for_softmax(end, mask)
 
         elif self.config.bidaf_output_implementation == 3:
             # My implementation 2
             with tf.variable_scope("start"):
-                start = logits_helper(m2, max_input_length, dropout=dropout)
+                start = logits_helper(m2, max_input_length)
                 start = prepro_for_softmax(start, mask)
 
             with tf.variable_scope("end"):
-                end = logits_helper(m2, max_input_length, dropout=dropout)
+                end = logits_helper(m2, max_input_length)
                 end = prepro_for_softmax(end, mask)
 
+        if self.use_dropout_before_softmax:
+            start = tf.nn.dropout(start, dropout)
+            end = tf.nn.dropout(end, dropout)
 
-        return (start, end)
+        return start, end
 
 
 class BiDAF(Model):
@@ -216,7 +217,7 @@ class BiDAF(Model):
         self.character_mappings = character_mappings
         self.config = config
         self.encoder = Encoder(config.hidden_size)
-        self.decoder = Decoder(config.hidden_size, config=config)
+        self.decoder = Decoder(config.hidden_size, config.use_dropout_before_softmax)
         self.attention = Attention()
 
         # ==== set up placeholder tokens ========

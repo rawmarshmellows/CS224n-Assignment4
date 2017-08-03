@@ -29,8 +29,9 @@ class Encoder(object):
 
 
 class Decoder(object):
-    def __init__(self, output_size):
+    def __init__(self, output_size, use_dropout_before_softmax):
         self.output_size = output_size
+        self.use_dropout_before_softmax = use_dropout_before_softmax
 
     def decode(self, inputs, mask, max_input_length, dropout):
 
@@ -42,6 +43,10 @@ class Decoder(object):
             end = logits_helper(inputs, max_input_length)
             end = prepro_for_softmax(end, mask)
 
+        if self.use_dropout_before_softmax:
+            start = tf.nn.dropout(start, dropout)
+            end = tf.nn.dropout(end, dropout)
+
         return (start, end)
 
 
@@ -50,7 +55,7 @@ class Baseline(Model):
         self.embeddings = embeddings
         self.config = config
         self.encoder = Encoder(config.hidden_size)
-        self.decoder = Decoder(config.hidden_size)
+        self.decoder = Decoder(config.hidden_size, config.use_dropout_before_softmax)
         # ==== set up placeholder tokens ========
         self.add_placeholders()
 
@@ -85,8 +90,8 @@ class Baseline(Model):
                                                         self.max_context_length_placeholder)
         return question_embeddings, context_embeddings
 
-    def _embedding_lookup(self, embeddings, indicies, max_length):
-        embeddings = tf.nn.embedding_lookup(embeddings, indicies)
+    def _embedding_lookup(self, embeddings, indices, max_length):
+        embeddings = tf.nn.embedding_lookup(embeddings, indices)
         embeddings = tf.reshape(embeddings, shape=[-1, max_length, self.config.embedding_size])
         return embeddings
 
@@ -101,7 +106,7 @@ class Baseline(Model):
                                                                            dropout=self.dropout_placeholder)
 
             if self.config.share_encoder_weights:
-                Hc, (c_final_state_fw,  c_final_state_bw) = self.encoder.encode(self.context_embeddings,
+                Hc, (_,  _) = self.encoder.encode(self.context_embeddings,
                                                                                self.context_mask_placeholder,
                                                                                initial_state_fw=q_final_state_fw,
                                                                                initial_state_bw=q_final_state_bw,
@@ -109,7 +114,7 @@ class Baseline(Model):
                                                                                reuse=True)
             else:
                 with tf.variable_scope("c"):
-                    Hc, (c_final_state_fw, c_final_state_bw) = self.encoder.encode(self.context_embeddings,
+                    Hc, (_, _) = self.encoder.encode(self.context_embeddings,
                                                                                    self.context_mask_placeholder,
                                                                                    initial_state_fw=q_final_state_fw,
                                                                                    initial_state_bw=q_final_state_bw,
@@ -161,19 +166,23 @@ class Baseline(Model):
 
         return train_op
 
-    def create_feed_dict(self, context, question, answer_span_start_batch=None, answer_span_end_batch=None,
+    def create_feed_dict(self, data,
                          is_train=True):
 
-        # logging.debug("len(context): {}".format(len(context)))
-        # logging.debug("len(question): {}".format(len(question)))
+        context = data["context"]
+        question = data["question"]
+        answer_span_start = data["answer_span_start"]
+        answer_span_end = data["answer_span_end"]
+
+        logging.debug("len(context): {}".format(len(context)))
+        logging.debug("len(question): {}".format(len(question)))
 
         context_batch, context_mask, max_context_length = pad_sequences(context,
                                                                         max_sequence_length=self.config.max_context_length)
         question_batch, question_mask, max_question_length = pad_sequences(question,
                                                                            max_sequence_length=self.config.max_question_length)
-        # print(context_batch)
-        # logging.debug("context_mask: {}".format(len(context_mask)))
-        # logging.debug("question_mask: {}".format(len(question_mask)))
+        logging.debug("context_mask: {}".format(len(context_mask)))
+        logging.debug("question_mask: {}".format(len(question_mask)))
 
         feed_dict = {self.context_placeholder: context_batch,
                      self.context_mask_placeholder: context_mask,
@@ -187,8 +196,9 @@ class Baseline(Model):
         else:
             feed_dict[self.dropout_placeholder] = 1.0
 
-        if answer_span_start_batch is not None and answer_span_end_batch is not None:
-            feed_dict[self.answer_span_start_placeholder] = answer_span_start_batch
-            feed_dict[self.answer_span_end_placeholder] = answer_span_end_batch
+        if answer_span_start is not None and answer_span_end is not None:
+            feed_dict[self.answer_span_start_placeholder] = answer_span_start
+            feed_dict[self.answer_span_end_placeholder] = answer_span_end
 
         return feed_dict
+

@@ -16,14 +16,12 @@ def prepro_for_softmax(logits, mask):
     return masked_logits
 
 
-def logits_helper(context, max_context_length, dropout=None):
+def logits_helper(context, max_context_length):
     d = context.get_shape().as_list()[-1]
     context = tf.reshape(context, shape=[-1, d])
     W = tf.get_variable("W1", initializer=tf.contrib.layers.xavier_initializer(), shape=(d, 1), dtype=tf.float32)
     pred = tf.matmul(context, W)
     pred = tf.reshape(pred, shape=[-1, max_context_length])
-    if dropout is not None:
-        pred = tf.nn.dropout(pred, dropout)
     return pred
 
 

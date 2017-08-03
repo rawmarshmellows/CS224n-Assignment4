@@ -1,6 +1,7 @@
 import logging
-from utils.general import pad_sequences
-from utils.model import prepro_for_softmax, logits_helper, get_optimizer, biLSTM
+from utils.general import pad_sequences, pad_character_sequences
+from utils.model import prepro_for_softmax, logits_helper, get_optimizer, biLSTM, word_embedding_lookup, \
+    character_embedding_lookup, conv1d, mask_for_character_embeddings, highway
 from models.model import Model
 import tensorflow as tf
 
@@ -70,8 +71,9 @@ class Attention(object):
 
 
 class Decoder(object):
-    def __init__(self, output_size):
+    def __init__(self, output_size, use_dropout_before_softmax):
         self.output_size = output_size
+        self.use_dropout_before_softmax = use_dropout_before_softmax
 
     def decode(self, inputs, mask, max_input_length, dropout):
         with tf.variable_scope("m1"):
@@ -88,6 +90,10 @@ class Decoder(object):
             end = logits_helper(m2, max_input_length)
             end = prepro_for_softmax(end, mask)
 
+        if self.use_dropout_before_softmax:
+            start = tf.nn.dropout(start, dropout)
+            end = tf.nn.dropout(end, dropout)
+
         return start, end
 
 
@@ -96,7 +102,7 @@ class LuongAttention(Model):
         self.embeddings = embeddings
         self.config = config
         self.encoder = Encoder(config.hidden_size)
-        self.decoder = Decoder(config.hidden_size)
+        self.decoder = Decoder(config.hidden_size, config.use_dropout_before_softmax)
         self.attention = Attention()
         # ==== set up placeholder tokens ========
         self.add_placeholders()
@@ -226,16 +232,15 @@ class LuongAttention(Model):
         answer_span_start = data["answer_span_start"]
         answer_span_end = data["answer_span_end"]
 
-        # logging.debug("len(context): {}".format(len(context)))
-        # logging.debug("len(question): {}".format(len(question)))
+        logging.debug("len(context): {}".format(len(context)))
+        logging.debug("len(question): {}".format(len(question)))
 
         context_batch, context_mask, max_context_length = pad_sequences(context,
                                                                         max_sequence_length=self.config.max_context_length)
         question_batch, question_mask, max_question_length = pad_sequences(question,
                                                                            max_sequence_length=self.config.max_question_length)
-        # print(context_batch)
-        # logging.debug("context_mask: {}".format(len(context_mask)))
-        # logging.debug("question_mask: {}".format(len(question_mask)))
+        logging.debug("context_mask: {}".format(len(context_mask)))
+        logging.debug("question_mask: {}".format(len(question_mask)))
 
         feed_dict = {self.context_placeholder: context_batch,
                      self.context_mask_placeholder: context_mask,
